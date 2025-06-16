@@ -315,6 +315,10 @@ int main (int argc, char *argv[])
    ntime  = 10;
    tstart = 0.0;
    tstop  = tstart + ntime/2.;
+
+   ippl::Vector<double, 3> kw = {0.5, 0.5, 0.5};
+
+   std::cout << "kw: " << kw[0] << "," << kw[1] << "," << kw[2];  
   
    // Initialize MPI
    MPI_Init(&argc, &argv);
