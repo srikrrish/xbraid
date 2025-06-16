@@ -63,7 +63,7 @@ export NVCC_WRAPPER_DEFAULT_COMPILER=/p/software/default/stages/2025/software/Op
 IPPL_DIR = ../../ippl_install
 IPPL_CXX = ${KOKKOS_DIR}/bin/nvcc_wrapper
 #IPPL_CXX = $(MPICXX)
-IPPL_CXXFLAGS = -O3 -std=c++20 --expt-extended-lambda -arch=sm_80
+IPPL_CXXFLAGS = -O3 -std=c++20 --expt-extended-lambda -arch=sm_80 -Wno-deprecated-declarations
 #IPPL_CXXFLAGS = -O3 -std=c++20
 IPPL_EXT_LIBS = $(KOKKOS_LIB) $(HEFFTE_LIB) $(FINUFFT_LIB)
 IPPL_LIB = -L$(IPPL_DIR)/lib -lippl
