@@ -46,15 +46,17 @@ MFEM_LIB_FILE = mfem_is_not_built
 
 KOKKOS_DIR = ../../kokkos_4_5_01_install_2025_ompi_toolchain/4.5.01
 KOKKOS_INC_DIR = -I$(KOKKOS_DIR)/include
-KOKKOS_LIB = -L$(KOKKOS_DIR)/lib64
+KOKKOS_LIB = -L$(KOKKOS_DIR)/lib64 -lkokkoscontainers -lkokkoscore -lkokkossimd
 
 HEFFTE_DIR = ../../heffte_2_4_1_install_2025_ompi_toolchain/2.4.1
 HEFFTE_INC_DIR = -I$(HEFFTE_DIR)/include
-HEFFTE_LIB = -L$(HEFFTE_DIR)/lib64
+HEFFTE_LIB = -L$(HEFFTE_DIR)/lib64 -lheffte
 
 FINUFFT_DIR = ../../finufft_2.3.1
 FINUFFT_INC_DIR = -I$(FINUFFT_DIR)/include
-FINUFFT_LIB = -L$(FINUFFT_DIR)/lib
+FINUFFT_LIB = -L$(FINUFFT_DIR)/lib -lcufinufft
+
+CUDA_LIB = -L$(CUDA_HOME)/lib64 -lcuda -lcudart -lcufft
 
 #export NVCC_WRAPPER_DEFAULT_COMPILER="$(which mpicxx)"
 #export NVCC_WRAPPER_DEFAULT_COMPILER=/p/software/juwelsbooster/stages/2025/software/GCCcore/13.3.0/bin/gcc
@@ -65,7 +67,7 @@ IPPL_CXX = ${KOKKOS_DIR}/bin/nvcc_wrapper
 #IPPL_CXX = $(MPICXX)
 IPPL_CXXFLAGS = -O3 -std=c++20 --expt-extended-lambda -arch=sm_80 -Wno-deprecated-declarations
 #IPPL_CXXFLAGS = -O3 -std=c++20
-IPPL_EXT_LIBS = $(KOKKOS_LIB) $(HEFFTE_LIB) $(FINUFFT_LIB)
+IPPL_EXT_LIBS = $(KOKKOS_LIB) $(HEFFTE_LIB) $(FINUFFT_LIB) $(CUDA_LIB)
 IPPL_LIB = -L$(IPPL_DIR)/lib -lippl
 IPPL_LIBS = $(IPPL_LIB) $(IPPL_EXT_LIBS) ${MPI_CXX_LIBRARIES}
 IPPL_INCFLAGS = -I$(IPPL_DIR)/include $(KOKKOS_INC_DIR) $(HEFFTE_INC_DIR) $(FINUFFT_INC_DIR)

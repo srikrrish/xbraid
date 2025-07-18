@@ -17,7 +17,7 @@
 //
 
 #include "Ippl.h"
-#include "Expression/IpplOperations.h"
+/*#include "Expression/IpplOperations.h"*/
 #include "Solver/FFTPeriodicPoissonSolver.h"
 
 // dimension of our positions

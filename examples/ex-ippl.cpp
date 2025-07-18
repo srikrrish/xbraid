@@ -169,15 +169,16 @@ double CDF(const double& x, const double& alpha, const double& k) {
 
 // Define BraidVector, can contain anything, and be named anything
 // --> Put all time-dependent information here
-class BraidVector : public ippl::ParticleBase<PLayout_t>
+template<class PLayout>
+class BraidVector : public ippl::ParticleBase<PLayout>
 {
 public:
    ParticleAttrib<double>     q; // charge
-   typename ippl::ParticleBase<PLayout_t>::particle_position_type P;  // G(P^(k)_n)
-   typename ippl::ParticleBase<PLayout_t>::particle_position_type E;  // electric field at particle position
+   typename ippl::ParticleBase<PLayout>::particle_position_type P;  // G(P^(k)_n)
+   typename ippl::ParticleBase<PLayout>::particle_position_type E;  // electric field at particle position
 
-   BraidVector(PLayout_t& pl)
-   : ippl::ParticleBase<PLayout_t>(pl)
+   BraidVector(PLayout& pl)
+   : ippl::ParticleBase<PLayout>(pl)
    {
        // register the particle attributes
        this->addAttribute(q);
@@ -408,7 +409,7 @@ public:
        initNUFFTs(FLPIF, coarseTol, fineTol);
    }
 
-   void LeapFrogPIF(BraidVector& u, const double& dt, const unsigned int& nt, const std::string& propagator) {
+   void LeapFrogPIF(BraidVector<PLayout_t>& u, const double& dt, const unsigned int& nt, const std::string& propagator) {
     
         //BraidVector *u = (BraidVector*) u_;
         PLayout_t& PL = u.getLayout();
@@ -475,7 +476,7 @@ public:
     }
 
 
-    void LeapFrogPIC(BraidVector& u, const double& dt, const unsigned int& nt) {
+    void LeapFrogPIC(BraidVector<PLayout_t>& u, const double& dt, const unsigned int& nt) {
     
         //BraidVector *u = (BraidVector*) u_;
         PLayout_t& PL = u.getLayout();
@@ -630,7 +631,7 @@ int MyBraidApp::Step(braid_Vector    u_,
                      BraidStepStatus &pstatus)
 {
    
-   BraidVector *u = (BraidVector*) u_;
+   BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
    double tstart;             // current time
    double tstop;              // evolve to this time
 
@@ -666,7 +667,7 @@ int MyBraidApp::Step(braid_Vector    u_,
 int MyBraidApp::Init(double        t,
                        braid_Vector *u_ptr)
 {
-   BraidVector *u = new BraidVector(PL_m);
+   BraidVector<PLayout_t> *u = new BraidVector<PLayout_t>(PL_m);
    u->create(nloc_m);
 
 
@@ -702,8 +703,8 @@ int MyBraidApp::Init(double        t,
 int MyBraidApp::Clone(braid_Vector  u_,
                         braid_Vector *v_ptr)
 {
-   BraidVector *u = (BraidVector*) u_;
-   BraidVector *v = new BraidVector(PL_m); 
+   BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
+   BraidVector<PLayout_t> *v = new BraidVector<PLayout_t>(PL_m); 
    //BraidVector *v = new BraidVector(u->value); 
    //*v_ptr = (braid_Vector) v;
    v->create(nloc_m);
@@ -720,7 +721,7 @@ int MyBraidApp::Clone(braid_Vector  u_,
 
 int MyBraidApp::Free(braid_Vector u_)
 {
-   BraidVector *u = (BraidVector*) u_;
+   BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
    delete u;
    return 0;
 }
@@ -730,8 +731,8 @@ int MyBraidApp::Sum(double       alpha,
                       double       beta,
                       braid_Vector y_)
 {
-   BraidVector *x = (BraidVector*) x_;
-   BraidVector *y = (BraidVector*) y_;
+   BraidVector<PLayout_t> *x = (BraidVector<PLayout_t>*) x_;
+   BraidVector<PLayout_t> *y = (BraidVector<PLayout_t>*) y_;
    (y->R) = alpha*(x->R) + beta*(y->R);
    (y->P) = alpha*(x->P) + beta*(y->P);
    return 0;
@@ -740,8 +741,7 @@ int MyBraidApp::Sum(double       alpha,
 int MyBraidApp::SpatialNorm(braid_Vector  u_,
                               double       *norm_ptr)
 {
-   double dot;
-   BraidVector *u = (BraidVector*) u_;
+   BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
    //dot = (u->value)*(u->value);
    //*norm_ptr = sqrt(dot);
 
@@ -773,7 +773,7 @@ int MyBraidApp::BufPack(braid_Vector       u_,
                           void               *buffer,
                           BraidBufferStatus  &status)
 {
-   BraidVector *u = (BraidVector*) u_;
+   BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
    using buffer_type = ippl::Communicate::buffer_type;
    buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_SEND, bufSize_m);
    u->serialize(*buf, nloc_m);
@@ -790,7 +790,7 @@ int MyBraidApp::BufUnpack(void              *buffer,
    using buffer_type = ippl::Communicate::buffer_type;
    buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_SEND, bufSize_m);
    
-   BraidVector *u = new BraidVector(PL_m); 
+   BraidVector<PLayout_t> *u = new BraidVector<PLayout_t>(PL_m); 
    u->deserialize(*buf, nloc_m);
    buf->resetReadPos();
    *u_ptr = (braid_Vector) u;
@@ -818,12 +818,12 @@ braid_Int MyBraidApp::BufFree(void          **buffer)
    return 0;
 }
 
-int MyBraidApp::Access(braid_Vector       u_,
+int MyBraidApp::Access(braid_Vector       /*u_*/,
                          BraidAccessStatus &astatus)
 {
    //char       filename[255];
    //FILE      *file;
-   BraidVector *u = (BraidVector*) u_;
+   //BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
 
    // Extract information from astatus
    int done, level, iter;
