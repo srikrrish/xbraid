@@ -638,8 +638,8 @@ int MyBraidApp::Step(braid_Vector    u_,
    // Get time step information
    pstatus.GetTstartTstop(&tstart, &tstop);
 
-   unsigned int ntFine = std::ceil((tstart - tstop) / dtFine_m);
-   unsigned int ntCoarse = std::ceil((tstart - tstop) / dtCoarse_m);
+   unsigned int ntFine = std::ceil((tstop - tstart) / dtFine_m);
+   unsigned int ntCoarse = std::ceil((tstop - tstart) / dtCoarse_m);
 
    int level;
    int max_levels;
@@ -648,6 +648,7 @@ int MyBraidApp::Step(braid_Vector    u_,
 
    if (level == 0) {
        LeapFrogPIF(*u, dtFine_m, ntFine, fine);  
+       //LeapFrogPIC(*u, dtCoarse_m, ntCoarse);  
    }
    else if ((level == 1) && (coarsetype_m == "PIF")) {
        //TODO: To create a hierarchy of nuffts with increasingly coarse tolerance at each level
@@ -999,7 +1000,7 @@ int main (int argc, char *argv[])
    // Initialize Braid Core Object and set some solver options
    BraidCore core(comm, &app);
    core.SetPrintLevel(2);
-   core.SetMaxLevels(2);
+   core.SetMaxLevels(1);
    core.SetRelTol(tol);
    int tnorm = 3; //Infinity norm
    core.SetTemporalNorm(tnorm);
