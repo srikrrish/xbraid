@@ -243,25 +243,30 @@ public:
    double dtFine_m;
    double dtCoarse_m;
 
+   double coarseTol_m, fineTol_m;
+
    MPI_Comm spaceComm, timeComm;
 
    size_type bufSize_m;
 
    std::shared_ptr<ippl::FFT<ippl::NUFFTransform, 3, double>> nufftType1Fine_mp,nufftType2Fine_mp,
                                                                nufftType1Coarse_mp,nufftType2Coarse_mp;
-
+   //BraidVector<PLayout_t> utemp(PLayout_t);
+   
+   BraidVector<PLayout_t> utemp{PL_m};
    // We will need the MPI Rank
    int rank, rankSpace, rankTime;
    int num_procs, sizeSpace, sizeTime;
+   int bufChoose_m;
 
    // Constructor 
    MyBraidApp(MPI_Comm comm_t_, MPI_Comm &comm_s_, int rank_, int rankSpace_, 
                        int rankTime_, int sizeSpace_, int sizeTime_, int num_procs_, 
                        double tstart_, double tstop_, int ntime_, 
                        Vector_i nmPIF, Vector_i nrPIC, Vector_t rmin, Vector_t rmax, 
-                       size_type Np, Vector_t alpha, Vector_t kw, double& dtFine, 
-                       double& dtCoarse, std::string& coarsetype, std::string& shapetype,
-                       int& shapedegree);
+                       size_type Np, Vector_t alpha, Vector_t kw, double dtFine, 
+                       double dtCoarse, std::string& coarsetype, std::string& shapetype,
+                       int shapedegree, double coarseTol, double fineTol);
 
 
    // Deconstructor
@@ -286,15 +291,14 @@ public:
        solver_mp->setLhs(EfieldPIC_m);
    }
    
-   void initNUFFTs(FieldLayout_t& FLPIF, double& coarseTol,
-                    double& fineTol) {
+   void initNUFFTs(FieldLayout_t& FLPIF) {
         
         ippl::ParameterList fftCoarseParams,fftFineParams;
 
         fftFineParams.add("gpu_method", 2);
         fftFineParams.add("gpu_sort", 0);
         fftFineParams.add("gpu_kerevalmeth", 1);
-        fftFineParams.add("tolerance", fineTol);
+        fftFineParams.add("tolerance", fineTol_m);
         fftFineParams.add("gpu_binsizex", 8);
         fftFineParams.add("gpu_binsizey", 8);
         fftFineParams.add("gpu_binsizez", 2);
@@ -303,7 +307,7 @@ public:
         fftCoarseParams.add("gpu_method", 2);
         fftCoarseParams.add("gpu_sort", 0);
         fftCoarseParams.add("gpu_kerevalmeth", 1);
-        fftCoarseParams.add("tolerance", coarseTol);
+        fftCoarseParams.add("tolerance", coarseTol_m);
         fftCoarseParams.add("gpu_binsizex", 8);
         fftCoarseParams.add("gpu_binsizey", 8);
         fftCoarseParams.add("gpu_binsizez", 2);
@@ -370,44 +374,44 @@ public:
 
    }
 
-   void initRequiredFields(double& coarseTol, double& fineTol) {
-
-       ippl::NDIndex<Dim> domainPIC;
-       ippl::NDIndex<Dim> domainPIF;
-       for (unsigned i = 0; i< Dim; i++) {
-           domainPIC[i] = ippl::Index(nrPIC_m[i]);
-           domainPIF[i] = ippl::Index(nmPIF_m[i]);
-       }
-
-       ippl::e_dim_tag decomp[Dim];
-       for (unsigned d = 0; d < Dim; ++d) {
-           decomp[d] = ippl::SERIAL;
-       }
-
-       Vector_t origin = {rmin_m[0], rmin_m[1], rmin_m[2]};
-
-       const bool isAllPeriodic=true;
-       Mesh_t meshPIC(domainPIC, hrPIC_m, origin);
-       Mesh_t meshPIF(domainPIF, hrPIF_m, origin);
-       FieldLayout_t FLPIC(domainPIC, decomp, isAllPeriodic);
-       FieldLayout_t FLPIF(domainPIF, decomp, isAllPeriodic);
-       PLayout_t PL(FLPIC, meshPIC);
-
-       PL_m.updateLayout(FLPIC, meshPIC);
-       rhoPIF_m.initialize(meshPIF, FLPIF);
-       Sk_m.initialize(meshPIF, FLPIF);
-
-       if(coarsetype_m == "PIC") {
-            rhoPIC_m.initialize(meshPIC, FLPIC);
-            EfieldPIC_m.initialize(meshPIC, FLPIC);
-            initFFTSolver();
-	        //Dummy solve done to do the initializations for heFFTe
-            rhoPIC_m = 0.0;
-            solver_mp->solve();
-       }
-
-       initNUFFTs(FLPIF, coarseTol, fineTol);
-   }
+//   void initRequiredFields() {
+//
+//       ippl::NDIndex<Dim> domainPIC;
+//       ippl::NDIndex<Dim> domainPIF;
+//       for (unsigned i = 0; i< Dim; i++) {
+//           domainPIC[i] = ippl::Index(nrPIC_m[i]);
+//           domainPIF[i] = ippl::Index(nmPIF_m[i]);
+//       }
+//
+//       ippl::e_dim_tag decomp[Dim];
+//       for (unsigned d = 0; d < Dim; ++d) {
+//           decomp[d] = ippl::SERIAL;
+//       }
+//
+//       Vector_t origin = {rmin_m[0], rmin_m[1], rmin_m[2]};
+//
+//       const bool isAllPeriodic=true;
+//       Mesh_t meshPIC(domainPIC, hrPIC_m, origin);
+//       Mesh_t meshPIF(domainPIF, hrPIF_m, origin);
+//       FieldLayout_t FLPIC(domainPIC, decomp, isAllPeriodic);
+//       FieldLayout_t FLPIF(domainPIF, decomp, isAllPeriodic);
+//       //PLayout_t PL(FLPIC, meshPIC);
+//
+//       PL_m.updateLayout(FLPIC, meshPIC);
+//       rhoPIF_m.initialize(meshPIF, FLPIF);
+//       Sk_m.initialize(meshPIF, FLPIF);
+//
+//       if(coarsetype_m == "PIC") {
+//            rhoPIC_m.initialize(meshPIC, FLPIC);
+//            EfieldPIC_m.initialize(meshPIC, FLPIC);
+//            initFFTSolver();
+//	        //Dummy solve done to do the initializations for heFFTe
+//            rhoPIC_m = 0.0;
+//            solver_mp->solve();
+//       }
+//
+//       initNUFFTs(FLPIF);
+//   }
 
    void LeapFrogPIF(BraidVector<PLayout_t>& u, const double& dt, const unsigned int& nt, const std::string& propagator) {
     
@@ -524,6 +528,33 @@ public:
         }
     }
 
+    int PrintParticle(BraidVector<PLayout_t>& u)
+    {
+       //BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
+    
+       typename ParticleAttrib<Vector_t>::HostMirror R_host = u.R.getHostMirror();
+       typename ParticleAttrib<Vector_t>::HostMirror P_host = u.P.getHostMirror();
+       Kokkos::deep_copy(R_host, u.R.getView());
+       Kokkos::deep_copy(P_host, u.P.getView());
+       std::stringstream pname;
+       pname << "data/Particle_";
+       pname << Ippl::Comm->rank();
+       pname << ".csv";
+       Inform pcsvout(NULL, pname.str().c_str(), Inform::APPEND, Ippl::Comm->rank());
+       pcsvout.precision(10);
+       pcsvout.setf(std::ios::scientific, std::ios::floatfield);
+       pcsvout << "R_x, R_y, R_z, V_x, V_y, V_z" << endl;
+       for (size_type i = 0; i< nloc_m; i++) {
+           pcsvout << R_host(i)[0] << " "
+                   << R_host(i)[1] << " "
+                   << R_host(i)[2] << " "
+                   << P_host(i)[0] << " "
+                   << P_host(i)[1] << " "
+                   << P_host(i)[2] << endl;
+       }
+       //Ippl::Comm->barrier();
+       return 0;
+    }
 
    // Define all the Braid Wrapper routines
    // Note: braid_Vector == BraidVector*
@@ -591,9 +622,9 @@ MyBraidApp::MyBraidApp(MPI_Comm comm_t_, MPI_Comm &comm_s_, int rank_, int rankS
                        int rankTime_, int sizeSpace_, int sizeTime_, int num_procs_, 
                        double tstart_, double tstop_, int ntime_, 
                        Vector_i nmPIF, Vector_i nrPIC, Vector_t rmin, Vector_t rmax, 
-                       size_type Np, Vector_t alpha, Vector_t kw, double& dtFine, 
-                       double& dtCoarse, std::string& coarsetype, std::string& shapetype,
-                       int& shapedegree) : BraidApp(comm_t_, tstart_, tstop_, ntime_)
+                       size_type Np, Vector_t alpha, Vector_t kw, double dtFine, 
+                       double dtCoarse, std::string& coarsetype, std::string& shapetype,
+                       int shapedegree, double coarseTol, double fineTol) : BraidApp(comm_t_, tstart_, tstop_, ntime_)
 {
    timeComm = comm_t_;
    spaceComm = comm_s_;
@@ -622,6 +653,9 @@ MyBraidApp::MyBraidApp(MPI_Comm comm_t_, MPI_Comm &comm_s_, int rank_, int rankS
    coarsetype_m = coarsetype;
    shapetype_m = shapetype;
    shapedegree_m = shapedegree;
+   coarseTol_m = coarseTol;
+   fineTol_m = fineTol;
+   bufChoose_m = 1;
 }
 
 // 
@@ -638,7 +672,7 @@ int MyBraidApp::Step(braid_Vector    u_,
    // Get time step information
    pstatus.GetTstartTstop(&tstart, &tstop);
 
-   unsigned int ntFine = std::ceil((tstop - tstart) / dtFine_m);
+   unsigned int ntFine = 1;//std::ceil((tstop - tstart) / dtFine_m);
    unsigned int ntCoarse = std::ceil((tstop - tstart) / dtCoarse_m);
 
    int level;
@@ -694,9 +728,12 @@ int MyBraidApp::Init(double        t,
       Kokkos::fence();
    }
 
-   bufSize_m = u->packedSize(nloc_m);
+   //bufSize_m = u->packedsize(nloc_m);
+   //std::cout << "Rank: " << Ippl::Comm->rank() << " Buf size in Init: " << bufSize_m << std::endl;
    u->setParticleBC(ippl::BC::PERIODIC);
    *u_ptr = (braid_Vector) u;
+   //initRequiredFields();
+   //initializeShapeFunctionPIF();
    return 0;
 
 }
@@ -758,7 +795,7 @@ int MyBraidApp::SpatialNorm(braid_Vector  u_,
    Kokkos::fence();
    double globalNorm = 0.0;
    MPI_Allreduce(&localNorm, &globalNorm, 1, MPI_DOUBLE, MPI_SUM, spaceComm);
-   *norm_ptr = globalNorm / std::sqrt(Np_m);
+   *norm_ptr = std::sqrt(globalNorm / Np_m);// / std::sqrt(Np_m);
 
    return 0;
 }
@@ -766,7 +803,12 @@ int MyBraidApp::SpatialNorm(braid_Vector  u_,
 int MyBraidApp::BufSize(int                *size_ptr,
                           BraidBufferStatus  &status)                           
 {
+   
+   //BraidVector<PLayout_t> utemp(PL_m);
+   bufSize_m = utemp.packedSize(nloc_m); 
    *size_ptr = (int)bufSize_m;
+   //std::cout << "Rank: " << Ippl::Comm->rank() << " In Buf size " << std::endl;
+   //MPI_Barrier(MPI_COMM_WORLD);
    return 0;
 }
 
@@ -780,6 +822,8 @@ int MyBraidApp::BufPack(braid_Vector       u_,
    u->serialize(*buf, nloc_m);
    status.SetSize(buf->getSize());
    buf->resetWritePos();
+   //PrintParticle(*u);
+   //std::cout << "Rank: " << Ippl::Comm->rank() << " After Buf pack " << std::endl;
 
    return 0;
 }
@@ -791,10 +835,14 @@ int MyBraidApp::BufUnpack(void              *buffer,
    using buffer_type = ippl::Communicate::buffer_type;
    buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_SEND, bufSize_m);
    
-   BraidVector<PLayout_t> *u = new BraidVector<PLayout_t>(PL_m); 
+   BraidVector<PLayout_t> *u = new BraidVector<PLayout_t>(PL_m);
+   u->create(nloc_m);
+   u->setParticleBC(ippl::BC::PERIODIC);
    u->deserialize(*buf, nloc_m);
    buf->resetReadPos();
    *u_ptr = (braid_Vector) u;
+   //PrintParticle(*u);
+   //std::cout << "Rank: " << Ippl::Comm->rank() << " After Buf un pack " << std::endl;
    return 0;
 }
 
@@ -807,17 +855,67 @@ int MyBraidApp::BufAlloc(void              **buffer,
    //from braid then we can get two buffers for send and receive and reuse them without
    //freeing them and only deleting at the end. This is usually important for performance
    //in GPUs.
-   buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_SEND, (size_type)nbytes);
+   //buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_SEND, (size_type)nbytes);
+   
+   
+   //std::cout << "Rank: " << Ippl::Comm->rank() << " Buf size in buf alloc: " << bufSize_m << std::endl;
 
-   *buffer = (void *)buf->getBuffer();
+   if (bufChoose_m == 1) {
+        buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_SEND, bufSize_m);
+        *buffer = (void *)buf->getBuffer();
+        bufChoose_m = 2;
+   }
+   else if(bufChoose_m == 2) {
+        buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_RECV, bufSize_m);
+        *buffer = (void *)buf->getBuffer();
+        bufChoose_m = 1;
+   }
 
    return 0;
 }
 braid_Int MyBraidApp::BufFree(void          **buffer)
 {
-   Ippl::Comm->deleteBuffer(IPPL_PARAREAL_SEND);
+   //Ippl::Comm->deleteBuffer(IPPL_PARAREAL_SEND);
+   *buffer = NULL;
    return 0;
 }
+
+//int MyBraidApp::Access(braid_Vector       u_,
+//                         BraidAccessStatus &astatus)
+//{
+//   //char       filename[255];
+//   //FILE      *file;
+//   BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
+//
+//   // Extract information from astatus
+//   int done, level, iter;
+//   double t;
+//   astatus.GetTILD(&t, &iter, &level, &done);
+//   //astatus.GetTIndex(&index);
+//
+//   typename ParticleAttrib<Vector_t>::HostMirror R_host = u->R.getHostMirror();
+//   typename ParticleAttrib<Vector_t>::HostMirror P_host = u->P.getHostMirror();
+//   Kokkos::deep_copy(R_host, u->R.getView());
+//   Kokkos::deep_copy(P_host, u->P.getView());
+//   std::stringstream pname;
+//   pname << "data/Particle_";
+//   pname << Ippl::Comm->rank();
+//   pname << ".csv";
+//   Inform pcsvout(NULL, pname.str().c_str(), Inform::OVERWRITE, Ippl::Comm->rank());
+//   pcsvout.precision(10);
+//   pcsvout.setf(std::ios::scientific, std::ios::floatfield);
+//   pcsvout << "R_x, R_y, R_z, V_x, V_y, V_z" << endl;
+//   for (size_type i = 0; i< nloc_m; i++) {
+//       pcsvout << R_host(i)[0] << " "
+//               << R_host(i)[1] << " "
+//               << R_host(i)[2] << " "
+//               << P_host(i)[0] << " "
+//               << P_host(i)[1] << " "
+//               << P_host(i)[2] << endl;
+//   }
+//   Ippl::Comm->barrier();
+//   return 0;
+//}
 
 int MyBraidApp::Access(braid_Vector       /*u_*/,
                          BraidAccessStatus &astatus)
@@ -827,10 +925,10 @@ int MyBraidApp::Access(braid_Vector       /*u_*/,
    //BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
 
    // Extract information from astatus
-   int done, level, iter;
+   int done, level, iter, index;
    double t;
    astatus.GetTILD(&t, &iter, &level, &done);
-   //astatus.GetTIndex(&index);
+   astatus.GetTIndex(&index);
 
    double fieldEnergy = 0.0; 
    double EzAmp = 0.0;
@@ -933,7 +1031,7 @@ int main (int argc, char *argv[])
    BraidUtil util;
    
    Ippl ippl(argc, argv);
-
+   {
    double        tstart, tstop;
    int           ntime;
 
@@ -948,7 +1046,8 @@ int main (int argc, char *argv[])
    int num_procs_x = std::atoi(argv[15]);
    int timeProcs = std::atoi(argv[16]);
 
-   ntime  = timeProcs;
+   //ntime  = timeProcs;
+   //ntime  = 400;//timeProcs;
     ippl::Vector<int,Dim> nmPIF = {
         std::atoi(argv[1]),
         std::atoi(argv[2]),
@@ -965,13 +1064,13 @@ int main (int argc, char *argv[])
    double tEnd = std::atof(argv[8]);
    tstop = tEnd;
    unsigned int nCycles = std::atoi(argv[12]);
-   //double tEndCycle = tEnd / nCycles;
-   //double dtSlice = tEndCycle / sizeTime;
+   double tEndCycle = tEnd / nCycles;
    double dtFine = std::atof(argv[9]);
    double dtCoarse = std::atof(argv[10]);
    //unsigned int ntFine = std::ceil(dtSlice / dtFine);
    //unsigned int ntCoarse = std::ceil(dtSlice / dtCoarse);
    double tol = std::atof(argv[11]);
+   ntime = (int)(tEnd / dtFine);
 
    std::string coarsetype = argv[19];
    std::string shapetype = argv[13];
@@ -987,33 +1086,93 @@ int main (int argc, char *argv[])
    MPI_Comm_size(spaceComm, &sizeSpace);
    MPI_Comm_size(timeComm, &sizeTime);
 
+   double dtSlice = tEndCycle / sizeTime;
+   int CFactor = (int)(dtSlice/dtFine);
+   //std::cout << "Rank: " << Ippl::Comm->rank() << "before braid app" << std::endl;
    // set up app structure
    MyBraidApp app(timeComm, spaceComm, rank, rankSpace, rankTime, 
                   sizeSpace, sizeTime, num_procs, tstart, tstop, 
                   ntime, nmPIF, nrPIC, rmin, rmax, totalP, alpha, kw,
-                  dtFine, dtCoarse, coarsetype, shapetype, shapedegree);
+                  dtFine, dtCoarse, coarsetype, shapetype, shapedegree,
+                  coarseTol, fineTol);
 
+   //std::cout << "Rank: " << Ippl::Comm->rank() << "after braid app" << std::endl;
 
-   app.initRequiredFields(coarseTol, fineTol);
+   ippl::NDIndex<Dim> domainPIC;
+   ippl::NDIndex<Dim> domainPIF;
+   for (unsigned i = 0; i< Dim; i++) {
+       domainPIC[i] = ippl::Index(nrPIC[i]);
+       domainPIF[i] = ippl::Index(nmPIF[i]);
+   }
+
+   ippl::e_dim_tag decomp[Dim];
+   for (unsigned d = 0; d < Dim; ++d) {
+       decomp[d] = ippl::SERIAL;
+   }
+
+   Vector_t origin = {rmin[0], rmin[1], rmin[2]};
+
+   const bool isAllPeriodic=true;
+   Mesh_t meshPIC(domainPIC, app.hrPIC_m, origin);
+   Mesh_t meshPIF(domainPIF, app.hrPIF_m, origin);
+   FieldLayout_t FLPIC(domainPIC, decomp, isAllPeriodic);
+   FieldLayout_t FLPIF(domainPIF, decomp, isAllPeriodic);
+   PLayout_t PL(FLPIC, meshPIC);
+
+   app.PL_m = PL;
+   //PL_m.updateLayout(FLPIC, meshPIC);
+   app.rhoPIF_m.initialize(meshPIF, FLPIF);
+   app.Sk_m.initialize(meshPIF, FLPIF);
+
+   if(coarsetype == "PIC") {
+        app.rhoPIC_m.initialize(meshPIC, FLPIC);
+        app.EfieldPIC_m.initialize(meshPIC, FLPIC);
+        app.initFFTSolver();
+        //Dummy solve done to do the initializations for heFFTe
+        app.rhoPIC_m = 0.0;
+        app.solver_mp->solve();
+   }
+
+   app.initNUFFTs(FLPIF);
    app.initializeShapeFunctionPIF();
+
+
+   //app.initRequiredFields(coarseTol, fineTol);
+   //app.initializeShapeFunctionPIF();
+
+   //util.TestInitAccess(&app, spaceComm, stdout, tstart);
+   //util.TestClone(&app, spaceComm, stdout, tstart);
+   //util.TestSum( &app, spaceComm, stdout, tstart);
+   //util.TestSpatialNorm( &app, spaceComm, stdout, tstart);
+   //int correct=1;
+   //correct = util.TestBuf(&app, spaceComm, stdout, tstart);
+
+   //std::cout << "Correct: " << correct << std::endl;
 
    // Initialize Braid Core Object and set some solver options
    BraidCore core(comm, &app);
    core.SetPrintLevel(2);
-   core.SetMaxLevels(1);
+   //core.SetMaxLevels(1);
+   core.SetMaxLevels(2);
+   //core.SetMaxIter(3);
    core.SetRelTol(tol);
+   //core.SetAbsTol(0.0);
    int tnorm = 3; //Infinity norm
    core.SetTemporalNorm(tnorm);
-   core.SetCFactor(-1, 2);
+   //core.SetCFactor(-1, 2);
+   core.SetCFactor(-1, CFactor);
    
+   //std::cout << "Rank: " << Ippl::Comm->rank() << "before core drive" << std::endl;
    // Run Simulation
+   core.SetBufAllocFree();
+   //core.SetSeqSoln(1);
    core.Drive();
+   //std::cout << "Rank: " << Ippl::Comm->rank() << "after core drive" << std::endl;
 
    // Clean up
    MPI_Comm_free(&spaceComm);
    MPI_Comm_free(&timeComm);
-
-
+   }
    Ippl::finalize();
    MPI_Finalize();
 
