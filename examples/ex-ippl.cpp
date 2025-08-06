@@ -242,6 +242,7 @@ public:
 
    double dtFine_m;
    double dtCoarse_m;
+   double dtSlice_m;
 
    double coarseTol_m, fineTol_m;
 
@@ -265,7 +266,7 @@ public:
                        double tstart_, double tstop_, int ntime_, 
                        Vector_i nmPIF, Vector_i nrPIC, Vector_t rmin, Vector_t rmax, 
                        size_type Np, Vector_t alpha, Vector_t kw, double dtFine, 
-                       double dtCoarse, std::string& coarsetype, std::string& shapetype,
+                       double dtCoarse, double dtSlice, std::string& coarsetype, std::string& shapetype,
                        int shapedegree, double coarseTol, double fineTol);
 
 
@@ -422,6 +423,7 @@ public:
         auto &q = u.q;
         auto &E = u.E;
         rhoPIF_m = {0.0, 0.0};
+        PL_m.applyBC(Rtemp, PL_m.getRegionLayout().getDomain());
         if(propagator == "Coarse") {
             scatterPIFNUFFT(q, rhoPIF_m, Sk_m, Rtemp, nufftType1Coarse_mp.get(), spaceComm);
         }
@@ -489,6 +491,7 @@ public:
         auto &q = u.q;
         auto &E = u.E;
         rhoPIC_m = 0.0;
+        PL_m.applyBC(Rtemp, PL_m.getRegionLayout().getDomain());
         scatter(q, rhoPIC_m, Rtemp, spaceComm);
     
         rhoPIC_m = rhoPIC_m / (hrPIC_m[0] * hrPIC_m[1] * hrPIC_m[2]);
@@ -623,7 +626,7 @@ MyBraidApp::MyBraidApp(MPI_Comm comm_t_, MPI_Comm &comm_s_, int rank_, int rankS
                        double tstart_, double tstop_, int ntime_, 
                        Vector_i nmPIF, Vector_i nrPIC, Vector_t rmin, Vector_t rmax, 
                        size_type Np, Vector_t alpha, Vector_t kw, double dtFine, 
-                       double dtCoarse, std::string& coarsetype, std::string& shapetype,
+                       double dtCoarse, double dtSlice, std::string& coarsetype, std::string& shapetype,
                        int shapedegree, double coarseTol, double fineTol) : BraidApp(comm_t_, tstart_, tstop_, ntime_)
 {
    timeComm = comm_t_;
@@ -650,6 +653,7 @@ MyBraidApp::MyBraidApp(MPI_Comm comm_t_, MPI_Comm &comm_s_, int rank_, int rankS
    nloc_m = (size_type)(factor * Np_m);
    dtFine_m = dtFine;
    dtCoarse_m = dtCoarse;
+   dtSlice_m = dtSlice;
    coarsetype_m = coarsetype;
    shapetype_m = shapetype;
    shapedegree_m = shapedegree;
@@ -673,24 +677,28 @@ int MyBraidApp::Step(braid_Vector    u_,
    pstatus.GetTstartTstop(&tstart, &tstop);
 
    unsigned int ntFine = 1;//std::ceil((tstop - tstart) / dtFine_m);
-   unsigned int ntCoarse = std::ceil((tstop - tstart) / dtCoarse_m);
+   //unsigned int ntCoarse = std::ceil((tstop - tstart) / dtCoarse_m);
+   //unsigned int ntCoarse = std::ceil(dtSlice_m / dtCoarse_m);
+   //unsigned int ntCoarse = std::ceil(dtSlice_m / dtCoarse_m);
+
 
    int level;
    int max_levels;
    pstatus.GetLevel(&level);
    pstatus.GetNLevels(&max_levels);
 
-   if (level == 0) {
-       LeapFrogPIF(*u, dtFine_m, ntFine, fine);  
-       //LeapFrogPIC(*u, dtCoarse_m, ntCoarse);  
-   }
-   else if ((level == 1) && (coarsetype_m == "PIF")) {
-       //TODO: To create a hierarchy of nuffts with increasingly coarse tolerance at each level
-       LeapFrogPIF(*u, dtCoarse_m, ntCoarse, coarse);  
-   }
-   else if ((level == 1) && (coarsetype_m == "PIC")) {
-       LeapFrogPIC(*u, dtCoarse_m, ntCoarse);  
-   }
+   dtFine_m = tstop - tstart;
+   //std::cout << "Rank: " << Ippl::Comm->rank() << " Level: " << level << " ntCoarse: " << ntCoarse << " tstart: " << tstart << " tstop: " << tstop << std::endl;
+   //if (level == 0) {
+     LeapFrogPIF(*u, dtFine_m, ntFine, fine);  
+   //}
+   //else if ((level == 1) && (coarsetype_m == "PIF")) {
+   //    //TODO: To create a hierarchy of nuffts with increasingly coarse tolerance at each level
+   //    LeapFrogPIF(*u, dtCoarse_m, ntCoarse, coarse);  
+   //}
+   //else if ((level == 1) && (coarsetype_m == "PIC")) {
+   //    LeapFrogPIC(*u, dtCoarse_m, ntCoarse);  
+   //}
 
    // no refinement
    pstatus.SetRFactor(1);
@@ -818,10 +826,18 @@ int MyBraidApp::BufPack(braid_Vector       u_,
 {
    BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
    using buffer_type = ippl::Communicate::buffer_type;
-   buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_SEND, bufSize_m);
-   u->serialize(*buf, nloc_m);
-   status.SetSize(buf->getSize());
-   buf->resetWritePos();
+   if (bufChoose_m == 2) {
+        buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_SEND, bufSize_m);
+        u->serialize(*buf, nloc_m);
+        status.SetSize(buf->getSize());
+        buf->resetWritePos();
+   }
+   else if (bufChoose_m == 1) {
+        buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_RECV, bufSize_m);
+        u->serialize(*buf, nloc_m);
+        status.SetSize(buf->getSize());
+        buf->resetWritePos();
+   }
    //PrintParticle(*u);
    //std::cout << "Rank: " << Ippl::Comm->rank() << " After Buf pack " << std::endl;
 
@@ -833,13 +849,19 @@ int MyBraidApp::BufUnpack(void              *buffer,
                             BraidBufferStatus &status)
 {
    using buffer_type = ippl::Communicate::buffer_type;
-   buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_SEND, bufSize_m);
-   
    BraidVector<PLayout_t> *u = new BraidVector<PLayout_t>(PL_m);
    u->create(nloc_m);
    u->setParticleBC(ippl::BC::PERIODIC);
-   u->deserialize(*buf, nloc_m);
-   buf->resetReadPos();
+   if (bufChoose_m == 2) {
+        buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_SEND, bufSize_m);
+        u->deserialize(*buf, nloc_m);
+        buf->resetReadPos();
+   }
+   else if (bufChoose_m == 1) {
+        buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_RECV, bufSize_m);
+        u->deserialize(*buf, nloc_m);
+        buf->resetReadPos();
+   }
    *u_ptr = (braid_Vector) u;
    //PrintParticle(*u);
    //std::cout << "Rank: " << Ippl::Comm->rank() << " After Buf un pack " << std::endl;
@@ -851,12 +873,6 @@ int MyBraidApp::BufAlloc(void              **buffer,
                         BraidBufferStatus &bstatus)
 {
    using buffer_type = ippl::Communicate::buffer_type;
-   //TODO: If we can differentiate between send and receives by exposing request_type 
-   //from braid then we can get two buffers for send and receive and reuse them without
-   //freeing them and only deleting at the end. This is usually important for performance
-   //in GPUs.
-   //buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_SEND, (size_type)nbytes);
-   
    
    //std::cout << "Rank: " << Ippl::Comm->rank() << " Buf size in buf alloc: " << bufSize_m << std::endl;
 
@@ -875,7 +891,6 @@ int MyBraidApp::BufAlloc(void              **buffer,
 }
 braid_Int MyBraidApp::BufFree(void          **buffer)
 {
-   //Ippl::Comm->deleteBuffer(IPPL_PARAREAL_SEND);
    *buffer = NULL;
    return 0;
 }
@@ -1093,7 +1108,7 @@ int main (int argc, char *argv[])
    MyBraidApp app(timeComm, spaceComm, rank, rankSpace, rankTime, 
                   sizeSpace, sizeTime, num_procs, tstart, tstop, 
                   ntime, nmPIF, nrPIC, rmin, rmax, totalP, alpha, kw,
-                  dtFine, dtCoarse, coarsetype, shapetype, shapedegree,
+                  dtFine, dtCoarse, dtSlice, coarsetype, shapetype, shapedegree,
                   coarseTol, fineTol);
 
    //std::cout << "Rank: " << Ippl::Comm->rank() << "after braid app" << std::endl;
@@ -1151,16 +1166,16 @@ int main (int argc, char *argv[])
 
    // Initialize Braid Core Object and set some solver options
    BraidCore core(comm, &app);
-   core.SetPrintLevel(2);
+   core.SetPrintLevel(3);
    //core.SetMaxLevels(1);
    core.SetMaxLevels(2);
-   //core.SetMaxIter(3);
-   core.SetRelTol(tol);
-   //core.SetAbsTol(0.0);
+   core.SetMaxIter(timeProcs+1);
+   //core.SetRelTol(tol);
+   core.SetAbsTol(tol);
    int tnorm = 3; //Infinity norm
    core.SetTemporalNorm(tnorm);
-   //core.SetCFactor(-1, 2);
-   core.SetCFactor(-1, CFactor);
+   core.SetCFactor(-1, 2);
+   //core.SetCFactor(-1, CFactor);
    
    //std::cout << "Rank: " << Ippl::Comm->rank() << "before core drive" << std::endl;
    // Run Simulation

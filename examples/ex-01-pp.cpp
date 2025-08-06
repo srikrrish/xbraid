@@ -331,9 +331,9 @@ int main (int argc, char *argv[])
 
    // Initialize Braid Core Object and set some solver options
    BraidCore core(MPI_COMM_WORLD, &app);
-   core.SetPrintLevel(2);
+   core.SetPrintLevel(3);
    core.SetMaxLevels(2);
-   core.SetAbsTol(1.0e-6);
+   core.SetAbsTol(1.0e-8);
    core.SetCFactor(-1, 2);
    
    // Run Simulation
