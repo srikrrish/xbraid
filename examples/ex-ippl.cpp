@@ -1215,7 +1215,13 @@ int main (int argc, char *argv[])
    //unsigned int ntFine = std::ceil(dtSlice / dtFine);
    //unsigned int ntCoarse = std::ceil(dtSlice / dtCoarse);
    double tol = std::atof(argv[11]);
-   ntime = (int)(tEnd / dtFine);
+   //ntime = (int)(tEnd / dtFine);
+   ntime = std::ceil(tEnd / dtFine);
+   //if ((ntime & (timeProcs - 1)) != 0) { // not divisible
+   //     ntime = (ntime + timeProcs - 1) & ~(timeProcs - 1);
+   //     //std::cout << n << " is not divisible by " << p
+   //     //     << ", rounding up to " << next << endl;
+   //}
 
    std::string coarsetype = argv[19];
    int nLevels = std::atoi(argv[20]);
@@ -1233,8 +1239,8 @@ int main (int argc, char *argv[])
    MPI_Comm_size(timeComm, &sizeTime);
 
    double dtSlice = tEndCycle / sizeTime;
-   int CFactor = (int)(dtSlice/dtFine);
-   //std::cout << "Rank: " << Ippl::Comm->rank() << "before braid app" << std::endl;
+   //int CFactor = (int)(dtSlice/dtFine) + 1;
+   int CFactor = std::ceil(dtSlice/dtFine);
    // set up app structure
    MyBraidApp app(timeComm, spaceComm, rank, rankSpace, rankTime, 
                   sizeSpace, sizeTime, num_procs, tstart, tstop, 
