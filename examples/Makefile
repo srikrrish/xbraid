@@ -62,7 +62,7 @@ CUDA_LIB = -L$(CUDA_HOME)/lib64 -lcuda -lcudart -lcufft
 #export NVCC_WRAPPER_DEFAULT_COMPILER=/p/software/juwelsbooster/stages/2025/software/GCCcore/13.3.0/bin/gcc
 export NVCC_WRAPPER_DEFAULT_COMPILER=/p/software/default/stages/2025/software/OpenMPI/5.0.5-GCC-13.3.0/bin/mpicxx
 
-IPPL_DIR = ../../ippl_install
+IPPL_DIR = ../../ippl_install_buffer
 IPPL_CXX = ${KOKKOS_DIR}/bin/nvcc_wrapper
 #IPPL_CXX = $(MPICXX)
 IPPL_CXXFLAGS = -O3 -std=c++20 --expt-extended-lambda -arch=sm_80 -Wno-deprecated-declarations

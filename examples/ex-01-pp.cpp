@@ -97,6 +97,9 @@ public:
    
    // We will need the MPI Rank
    int rank;
+   double buf1;
+   double buf2;
+   int bufChoose_m;
 
    // Deconstructor
    virtual ~MyBraidApp() {};
@@ -146,10 +149,10 @@ public:
    // Not needed in this example
    virtual int BufAlloc(void              **buffer,
                         int               nbytes,
-                        BraidBufferStatus &bstatus) { return 0; }
+                        BraidBufferStatus &bstatus); //{ return 0; }
 
    // Not needed in this example
-   virtual braid_Int BufFree(void          **buffer) { return 0; }
+   virtual braid_Int BufFree(void          **buffer);// { return 0; }
 
    // Not needed in this example
    virtual int Coarsen(braid_Vector   fu_,
@@ -283,6 +286,28 @@ int MyBraidApp::BufUnpack(void              *buffer,
    return 0;
 }
 
+
+int MyBraidApp::BufAlloc(void              **buffer,
+                        int               nbytes,
+                        BraidBufferStatus &bstatus)
+{
+   if (bufChoose_m == 1) {
+       *buffer = &buf1;
+        bufChoose_m = 2;
+   }
+   else if(bufChoose_m == 2) {
+       *buffer = &buf2;
+        bufChoose_m = 1;
+   }
+
+   return 0;
+}
+braid_Int MyBraidApp::BufFree(void          **buffer)
+{
+   *buffer = NULL;
+   return 0;
+}
+
 int MyBraidApp::Access(braid_Vector       u_,
                          BraidAccessStatus &astatus)
 {
@@ -318,9 +343,11 @@ int main (int argc, char *argv[])
    int           ntime, rank;
 
    // Define time domain: ntime intervals
-   ntime  = 10;
+   ntime  = 64;
    tstart = 0.0;
    tstop  = tstart + ntime/2.;
+
+   int bufalloc = 1;
   
    // Initialize MPI
    MPI_Init(&argc, &argv);
@@ -329,13 +356,17 @@ int main (int argc, char *argv[])
    // set up app structure
    MyBraidApp app(MPI_COMM_WORLD, rank, tstart, tstop, ntime);
 
+   app.bufChoose_m = 1;
    // Initialize Braid Core Object and set some solver options
    BraidCore core(MPI_COMM_WORLD, &app);
    core.SetPrintLevel(3);
    core.SetMaxLevels(2);
    core.SetAbsTol(1.0e-8);
-   core.SetCFactor(-1, 2);
-   
+   core.SetCFactor(-1, 8);
+  
+   if(bufalloc) {
+        core.SetBufAllocFree();
+   }
    // Run Simulation
    core.Drive();
 

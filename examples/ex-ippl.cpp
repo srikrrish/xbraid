@@ -199,6 +199,11 @@ class MyBraidApp : public BraidApp
 protected:
    // BraidApp defines tstart, tstop, ntime and comm_t
 
+private:
+   int next_id_ = 1;
+   std::map<void*, int> buffer_ptr_to_id_;  // Tracks active buffers
+   //std::map<size_type, std::vector<ippl::Communicate::buffer_type>> buffer_pool_;  // Pool: size → list of buffers
+
 public:
 
    CxField_t rhoPIF_m;
@@ -250,8 +255,9 @@ public:
 
    size_type bufSize_m;
 
-   std::shared_ptr<ippl::FFT<ippl::NUFFTransform, 3, double>> nufftType1Fine_mp,nufftType2Fine_mp,
-                                                               nufftType1Coarse_mp,nufftType2Coarse_mp;
+
+   std::vector<std::shared_ptr<ippl::FFT<ippl::NUFFTransform, 3, double>>> nufftType1_m;
+   std::vector<std::shared_ptr<ippl::FFT<ippl::NUFFTransform, 3, double>>> nufftType2_m;
    //BraidVector<PLayout_t> utemp(PLayout_t);
    
    BraidVector<PLayout_t> utemp{PL_m};
@@ -292,36 +298,39 @@ public:
        solver_mp->setLhs(EfieldPIC_m);
    }
    
-   void initNUFFTs(FieldLayout_t& FLPIF) {
+   void initNUFFTs(FieldLayout_t& FLPIF, int numLevels) {
+
+        std::vector<ippl::ParameterList> fftParamsPerLevel;
+       
+        fftParamsPerLevel.resize(numLevels);
+        nufftType1_m.resize(numLevels);
+        nufftType2_m.resize(numLevels);
+
+        for (int level = 0; level < numLevels; ++level) {
+            auto& plist = fftParamsPerLevel[level];
         
-        ippl::ParameterList fftCoarseParams,fftFineParams;
+            //Example: vary tolerance by level
+            double tol=fineTol_m;
+            if(numLevels == 2) {
+                tol = (level == 0) ? fineTol_m : coarseTol_m;
+            }
+            else {
+                double coarseTol = fineTol_m * std::pow(10.0, level);
+                tol = (level == 0) ? fineTol_m : coarseTol;
+            }
+            plist.add("gpu_method", 2);
+            plist.add("gpu_sort", 0);
+            plist.add("gpu_kerevalmeth", 1);
+            plist.add("tolerance", tol);
+            plist.add("gpu_binsizex", 8);
+            plist.add("gpu_binsizey", 8);
+            plist.add("gpu_binsizez", 2);
+            plist.add("gpu_maxsubprobsize", 1024);
+            plist.add("use_cufinufft_defaults", false);
 
-        fftFineParams.add("gpu_method", 2);
-        fftFineParams.add("gpu_sort", 0);
-        fftFineParams.add("gpu_kerevalmeth", 1);
-        fftFineParams.add("tolerance", fineTol_m);
-        fftFineParams.add("gpu_binsizex", 8);
-        fftFineParams.add("gpu_binsizey", 8);
-        fftFineParams.add("gpu_binsizez", 2);
-        fftFineParams.add("gpu_maxsubprobsize", 1024);
-
-        fftCoarseParams.add("gpu_method", 2);
-        fftCoarseParams.add("gpu_sort", 0);
-        fftCoarseParams.add("gpu_kerevalmeth", 1);
-        fftCoarseParams.add("tolerance", coarseTol_m);
-        fftCoarseParams.add("gpu_binsizex", 8);
-        fftCoarseParams.add("gpu_binsizey", 8);
-        fftCoarseParams.add("gpu_binsizez", 2);
-        fftCoarseParams.add("gpu_maxsubprobsize", 1024);
-
-        fftFineParams.add("use_cufinufft_defaults", false);
-        fftCoarseParams.add("use_cufinufft_defaults", false);
-        
-        nufftType1Fine_mp = std::make_shared<ippl::FFT<ippl::NUFFTransform, 3, double>>(FLPIF, nloc_m, 1, fftFineParams);
-        nufftType2Fine_mp = std::make_shared<ippl::FFT<ippl::NUFFTransform, 3, double>>(FLPIF, nloc_m, 2, fftFineParams);
-
-        nufftType1Coarse_mp = std::make_shared<ippl::FFT<ippl::NUFFTransform, 3, double>>(FLPIF, nloc_m, 1, fftCoarseParams);
-        nufftType2Coarse_mp = std::make_shared<ippl::FFT<ippl::NUFFTransform, 3, double>>(FLPIF, nloc_m, 2, fftCoarseParams);
+            nufftType1_m[level] = std::make_shared<ippl::FFT<ippl::NUFFTransform, 3, double>>(FLPIF, nloc_m, 1, plist);
+            nufftType2_m[level] = std::make_shared<ippl::FFT<ippl::NUFFTransform, 3, double>>(FLPIF, nloc_m, 2, plist);
+        }
    }
 
    void initializeShapeFunctionPIF() {
@@ -414,7 +423,7 @@ public:
 //       initNUFFTs(FLPIF);
 //   }
 
-   void LeapFrogPIF(BraidVector<PLayout_t>& u, const double& dt, const unsigned int& nt, const std::string& propagator) {
+   void LeapFrogPIF(BraidVector<PLayout_t>& u, const double& dt, const unsigned int& nt, const int& level) {
     
         //BraidVector *u = (BraidVector*) u_;
         PLayout_t& PL = u.getLayout();
@@ -424,22 +433,12 @@ public:
         auto &E = u.E;
         rhoPIF_m = {0.0, 0.0};
         PL_m.applyBC(Rtemp, PL_m.getRegionLayout().getDomain());
-        if(propagator == "Coarse") {
-            scatterPIFNUFFT(q, rhoPIF_m, Sk_m, Rtemp, nufftType1Coarse_mp.get(), spaceComm);
-        }
-        else if(propagator == "Fine") {
-            scatterPIFNUFFT(q, rhoPIF_m, Sk_m, Rtemp, nufftType1Fine_mp.get(), spaceComm);
-        }
-    
+        scatterPIFNUFFT(q, rhoPIF_m, Sk_m, Rtemp, nufftType1_m[level].get(), spaceComm);
+
         rhoPIF_m = rhoPIF_m / ((rmax_m[0] - rmin_m[0]) * (rmax_m[1] - rmin_m[1]) * (rmax_m[2] - rmin_m[2]));
     
         // Solve for and gather E field
-        if(propagator == "Coarse") {
-            gatherPIFNUFFT(E, rhoPIF_m, Sk_m, Rtemp, nufftType2Coarse_mp.get(), q);
-        }
-        else if(propagator == "Fine") {
-            gatherPIFNUFFT(E, rhoPIF_m, Sk_m, Rtemp, nufftType2Fine_mp.get(), q);
-        }
+        gatherPIFNUFFT(E, rhoPIF_m, Sk_m, Rtemp, nufftType2_m[level].get(), q);
 
         //Reset the value of q here as we used it as a temporary object in gather to 
         //save memory
@@ -454,25 +453,16 @@ public:
     
             //Apply particle BC
             PL_m.applyBC(Rtemp, PL_m.getRegionLayout().getDomain());
-    
             //scatter the charge onto the underlying grid
             rhoPIF_m = {0.0, 0.0};
-            if(propagator == "Coarse") {
-                scatterPIFNUFFT(q, rhoPIF_m, Sk_m, Rtemp, nufftType1Coarse_mp.get(), spaceComm);
-            }
-            else if(propagator == "Fine") {
-                scatterPIFNUFFT(q, rhoPIF_m, Sk_m, Rtemp, nufftType1Fine_mp.get(), spaceComm);
-            }
+            
+            scatterPIFNUFFT(q, rhoPIF_m, Sk_m, Rtemp, nufftType1_m[level].get(), spaceComm);
+    
     
             rhoPIF_m = rhoPIF_m / ((rmax_m[0] - rmin_m[0]) * (rmax_m[1] - rmin_m[1]) * (rmax_m[2] - rmin_m[2]));
     
             // Solve for and gather E field
-            if(propagator == "Coarse") {
-                gatherPIFNUFFT(E, rhoPIF_m, Sk_m, Rtemp, nufftType2Coarse_mp.get(), q);
-            }
-            else if(propagator == "Fine") {
-                gatherPIFNUFFT(E, rhoPIF_m, Sk_m, Rtemp, nufftType2Fine_mp.get(), q);
-            }
+            gatherPIFNUFFT(E, rhoPIF_m, Sk_m, Rtemp, nufftType2_m[level].get(), q);
 
             q = Q_m / Np_m;
 
@@ -558,6 +548,7 @@ public:
        //Ippl::Comm->barrier();
        return 0;
     }
+
 
    // Define all the Braid Wrapper routines
    // Note: braid_Vector == BraidVector*
@@ -678,8 +669,7 @@ int MyBraidApp::Step(braid_Vector    u_,
 
    unsigned int ntFine = 1;//std::ceil((tstop - tstart) / dtFine_m);
    //unsigned int ntCoarse = std::ceil((tstop - tstart) / dtCoarse_m);
-   //unsigned int ntCoarse = std::ceil(dtSlice_m / dtCoarse_m);
-   //unsigned int ntCoarse = std::ceil(dtSlice_m / dtCoarse_m);
+   unsigned int ntCoarse = std::ceil(dtSlice_m / dtCoarse_m);
 
 
    int level;
@@ -687,18 +677,34 @@ int MyBraidApp::Step(braid_Vector    u_,
    pstatus.GetLevel(&level);
    pstatus.GetNLevels(&max_levels);
 
-   dtFine_m = tstop - tstart;
+   //dtFine_m = tstop - tstart;
    //std::cout << "Rank: " << Ippl::Comm->rank() << " Level: " << level << " ntCoarse: " << ntCoarse << " tstart: " << tstart << " tstop: " << tstop << std::endl;
-   //if (level == 0) {
-     LeapFrogPIF(*u, dtFine_m, ntFine, fine);  
-   //}
-   //else if ((level == 1) && (coarsetype_m == "PIF")) {
-   //    //TODO: To create a hierarchy of nuffts with increasingly coarse tolerance at each level
-   //    LeapFrogPIF(*u, dtCoarse_m, ntCoarse, coarse);  
-   //}
-   //else if ((level == 1) && (coarsetype_m == "PIC")) {
-   //    LeapFrogPIC(*u, dtCoarse_m, ntCoarse);  
-   //}
+   //std::cout << "Rank: " << Ippl::Comm->rank() << " Max Level: " << max_levels << std::endl;
+   
+   if(max_levels == 1) {
+        LeapFrogPIF(*u, dtFine_m, ntFine, level);
+   }
+   else {
+        if(coarsetype_m == "PIF") {
+            if(level == 0) {
+                 LeapFrogPIF(*u, dtFine_m, ntFine, level);
+            }
+            else {
+                 LeapFrogPIF(*u, dtCoarse_m, ntCoarse, level);
+            }
+        }
+        else if(coarsetype_m == "PIC") {
+            if(level == 0) {
+                 LeapFrogPIF(*u, dtFine_m, ntFine, level);
+            }
+            else if((level > 0) && (level < (max_levels-1))) {
+                 LeapFrogPIF(*u, dtCoarse_m, ntCoarse, level);
+            }
+            else {
+                 LeapFrogPIC(*u, dtCoarse_m, ntCoarse);  
+            }
+        }
+   }
 
    // no refinement
    pstatus.SetRFactor(1);
@@ -803,7 +809,7 @@ int MyBraidApp::SpatialNorm(braid_Vector  u_,
    Kokkos::fence();
    double globalNorm = 0.0;
    MPI_Allreduce(&localNorm, &globalNorm, 1, MPI_DOUBLE, MPI_SUM, spaceComm);
-   *norm_ptr = std::sqrt(globalNorm / Np_m);// / std::sqrt(Np_m);
+   *norm_ptr = std::sqrt(globalNorm / Np_m);
 
    return 0;
 }
@@ -826,18 +832,28 @@ int MyBraidApp::BufPack(braid_Vector       u_,
 {
    BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
    using buffer_type = ippl::Communicate::buffer_type;
-   if (bufChoose_m == 2) {
-        buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_SEND, bufSize_m);
-        u->serialize(*buf, nloc_m);
-        status.SetSize(buf->getSize());
-        buf->resetWritePos();
-   }
-   else if (bufChoose_m == 1) {
-        buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_RECV, bufSize_m);
-        u->serialize(*buf, nloc_m);
-        status.SetSize(buf->getSize());
-        buf->resetWritePos();
-   }
+   void* raw_ptr = buffer;
+   int id = buffer_ptr_to_id_.at(raw_ptr);
+   //buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_SEND, bufSize_m);
+   buffer_type buf = Ippl::Comm->getBuffer(id, bufSize_m);
+   u->serialize(*buf, nloc_m);
+   status.SetSize(buf->getSize());
+   buf->resetWritePos();
+   //std::cout << "Rank: " << Ippl::Comm->rank() << " Before Buf pack " << std::endl;
+   //buf->copyBuffer(buffer, (int)bufSize_m, 1);
+   //std::cout << "Rank: " << Ippl::Comm->rank() << " After Buf pack " << std::endl;
+   //if (bufChoose_m == 2) {
+   //     buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_SEND, bufSize_m);
+   //     u->serialize(*buf, nloc_m);
+   //     status.SetSize(buf->getSize());
+   //     buf->resetWritePos();
+   //}
+   //else if (bufChoose_m == 1) {
+   //     buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_RECV, bufSize_m);
+   //     u->serialize(*buf, nloc_m);
+   //     status.SetSize(buf->getSize());
+   //     buf->resetWritePos();
+   //}
    //PrintParticle(*u);
    //std::cout << "Rank: " << Ippl::Comm->rank() << " After Buf pack " << std::endl;
 
@@ -852,16 +868,26 @@ int MyBraidApp::BufUnpack(void              *buffer,
    BraidVector<PLayout_t> *u = new BraidVector<PLayout_t>(PL_m);
    u->create(nloc_m);
    u->setParticleBC(ippl::BC::PERIODIC);
-   if (bufChoose_m == 2) {
-        buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_SEND, bufSize_m);
-        u->deserialize(*buf, nloc_m);
-        buf->resetReadPos();
-   }
-   else if (bufChoose_m == 1) {
-        buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_RECV, bufSize_m);
-        u->deserialize(*buf, nloc_m);
-        buf->resetReadPos();
-   }
+   //if (bufChoose_m == 2) {
+   //     buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_SEND, bufSize_m);
+   //     u->deserialize(*buf, nloc_m);
+   //     buf->resetReadPos();
+   //}
+   //else if (bufChoose_m == 1) {
+   //     buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_RECV, bufSize_m);
+   //     u->deserialize(*buf, nloc_m);
+   //     buf->resetReadPos();
+   //}
+
+   void* raw_ptr = buffer;
+   int id = buffer_ptr_to_id_.at(raw_ptr);
+   //buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_RECV, bufSize_m);
+   buffer_type buf = Ippl::Comm->getBuffer(id, bufSize_m);
+   //std::cout << "Rank: " << Ippl::Comm->rank() << " Before Buf unpack " << std::endl;
+   //buf->copyBuffer(buffer, (int)bufSize_m, 2);
+   //std::cout << "Rank: " << Ippl::Comm->rank() << " After Buf unpack " << std::endl;
+   u->deserialize(*buf, nloc_m);
+   buf->resetReadPos();
    *u_ptr = (braid_Vector) u;
    //PrintParticle(*u);
    //std::cout << "Rank: " << Ippl::Comm->rank() << " After Buf un pack " << std::endl;
@@ -873,27 +899,86 @@ int MyBraidApp::BufAlloc(void              **buffer,
                         BraidBufferStatus &bstatus)
 {
    using buffer_type = ippl::Communicate::buffer_type;
-   
-   //std::cout << "Rank: " << Ippl::Comm->rank() << " Buf size in buf alloc: " << bufSize_m << std::endl;
+   using archive_type = ippl::Communicate::archive_type;
 
-   if (bufChoose_m == 1) {
-        buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_SEND, bufSize_m);
-        *buffer = (void *)buf->getBuffer();
-        bufChoose_m = 2;
-   }
-   else if(bufChoose_m == 2) {
-        buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_RECV, bufSize_m);
-        *buffer = (void *)buf->getBuffer();
-        bufChoose_m = 1;
-   }
+   int id = next_id_++;
+   buffer_type buf = Ippl::Comm->getBuffer(id, bufSize_m);
+   void* raw_ptr = (void*)buf->getBuffer();
+
+   buffer_ptr_to_id_[raw_ptr] = id;
+   *buffer = raw_ptr;
 
    return 0;
 }
+
 braid_Int MyBraidApp::BufFree(void          **buffer)
 {
-   *buffer = NULL;
+   void* raw_ptr = *buffer;
+
+   auto it = buffer_ptr_to_id_.find(raw_ptr);
+   if (it != buffer_ptr_to_id_.end()) {
+       int id = it->second;
+       Ippl::Comm->deleteBuffer(id);
+       buffer_ptr_to_id_.erase(it);
+   }
+   *buffer = nullptr;
    return 0;
 }
+
+//int MyBraidApp::BufAlloc(void **buffer, int nbytes, BraidBufferStatus &bstatus)
+//{
+//    using buffer_type = ippl::Communicate::buffer_type;
+//
+//    //buffer_type buf;
+//    int id;
+//
+//    // Try to reuse buffer from the pool
+//    auto &pool = buffer_pool_[bufSize_m];
+//    if (!pool.empty()) {
+//        buffer_type buf = pool.back();
+//        pool.pop_back();
+//        //std::cout << "Reusing buffer of size " << nbytes << std::endl;
+//
+//        void* raw_ptr = static_cast<void*>(buf->getBuffer());
+//
+//        // Reconstruct ID from reused buffer via raw pointer lookup
+//        id = next_id_++; // Generate new ID for reuse tracking (can also cache if needed)
+//        buffer_ptr_to_id_[raw_ptr] = id;
+//
+//        *buffer = raw_ptr;
+//        return 0;
+//    }
+//
+//    // No buffer to reuse; create new one
+//    id = next_id_++;
+//    buffer_type buf = Ippl::Comm->getBuffer(id, bufSize_m);
+//    void* raw_ptr = static_cast<void*>(buf->getBuffer());
+//
+//    buffer_ptr_to_id_[raw_ptr] = id;
+//    *buffer = raw_ptr;
+//
+//    return 0;
+//}
+//
+//braid_Int MyBraidApp::BufFree(void **buffer)
+//{
+//    void* raw_ptr = *buffer;
+//
+//    auto it = buffer_ptr_to_id_.find(raw_ptr);
+//    if (it != buffer_ptr_to_id_.end()) {
+//        int id = it->second;
+//
+//        ippl::Communicate::buffer_type buf = Ippl::Comm->getBuffer(id, bufSize_m);
+//        size_type size = buf->getBufferSize(); 
+//        buffer_pool_[size].push_back(buf);
+//
+//        buffer_ptr_to_id_.erase(it);
+//    }
+//
+//    *buffer = nullptr;
+//    return 0;
+//}
+
 
 //int MyBraidApp::Access(braid_Vector       u_,
 //                         BraidAccessStatus &astatus)
@@ -932,12 +1017,25 @@ braid_Int MyBraidApp::BufFree(void          **buffer)
 //   return 0;
 //}
 
-int MyBraidApp::Access(braid_Vector       /*u_*/,
+int MyBraidApp::Access(braid_Vector       u_,
                          BraidAccessStatus &astatus)
 {
-   //char       filename[255];
-   //FILE      *file;
-   //BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
+   BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
+
+   auto Eview = u->E.getView();
+   double localEnergy = 0.0;
+
+   Kokkos::parallel_reduce("Local Esquared", u->E.size(),
+                           KOKKOS_LAMBDA(const int i, double& valL){
+                               double myVal = Eview(i)[2] * Eview(i)[2];
+                               valL += myVal;
+                           }, Kokkos::Sum<double>(localEnergy));
+
+   Kokkos::fence();
+   double globalEnergy = 0.0;
+   MPI_Allreduce(&localEnergy, &globalEnergy, 1, MPI_DOUBLE, MPI_SUM, spaceComm);
+   double volume = (rmax_m[0] - rmin_m[0]) * (rmax_m[1] - rmin_m[1]) * (rmax_m[2] - rmin_m[2]);
+   globalEnergy = globalEnergy * (volume / Np_m);
 
    // Extract information from astatus
    int done, level, iter, index;
@@ -945,71 +1043,9 @@ int MyBraidApp::Access(braid_Vector       /*u_*/,
    astatus.GetTILD(&t, &iter, &level, &done);
    astatus.GetTIndex(&index);
 
-   double fieldEnergy = 0.0; 
-   double EzAmp = 0.0;
-
-   auto rhoview = rhoPIF_m.getView();
-   const int nghost = rhoPIF_m.getNghost();
-   using mdrange_type = Kokkos::MDRangePolicy<Kokkos::Rank<Dim>>;
-   
-   const FieldLayout_t& layout = rhoPIF_m.getLayout(); 
-   const Mesh_t& mesh = rhoPIF_m.get_mesh();
-   const Vector<double, Dim>& dx = mesh.getMeshSpacing();
-   const auto& domain = layout.getDomain();
-   Vector<double, Dim> Len;
-   Vector<int, Dim> N;
-
-   for (unsigned d=0; d < Dim; ++d) {
-       N[d] = domain[d].length();
-       Len[d] = dx[d] * N[d];
-   }
-
-
-   Kokkos::complex<double> imag = {0.0, 1.0};
-   double pi = std::acos(-1.0);
-   Kokkos::parallel_reduce("Ez energy and Max",
-                         mdrange_type({0, 0, 0},
-                                      {N[0],
-                                       N[1],
-                                       N[2]}),
-                         KOKKOS_LAMBDA(const int i,
-                                       const int j,
-                                       const int k,
-                                       double& tlSum,
-                                       double& tlMax)
-   {
-   
-       Vector<int, 3> iVec = {i, j, k};
-       Vector<double, 3> kVec;
-       double Dr = 0.0;
-       for(size_t d = 0; d < Dim; ++d) {
-           kVec[d] = 2 * pi / Len[d] * (iVec[d] - (N[d] / 2));
-           Dr += kVec[d] * kVec[d];
-       }
-
-       Kokkos::complex<double> Ek = {0.0, 0.0}; 
-       bool isNotZero = (Dr != 0.0);
-       double factor = isNotZero * (1.0 / (Dr + ((!isNotZero) * 1.0))); 
-       Ek = -(imag * kVec[2] * rhoview(i+nghost,j+nghost,k+nghost) * factor);
-       double myVal = Ek.real() * Ek.real() + Ek.imag() * Ek.imag();
-
-       tlSum += myVal;
-
-       double myValMax = std::sqrt(myVal);
-
-       if(myValMax > tlMax) tlMax = myValMax;
-
-   }, Kokkos::Sum<double>(fieldEnergy), Kokkos::Max<double>(EzAmp));
-   
-
-   Kokkos::fence();
-   double volume = (rmax_m[0] - rmin_m[0]) * (rmax_m[1] - rmin_m[1]) * (rmax_m[2] - rmin_m[2]);
-   fieldEnergy *= volume;
-
-
    if(rankSpace == 0) {
        std::stringstream fname;
-       fname << "data/FieldLandau_rank_";
+       fname << "data/ParticleLandau_rank_";
        fname << rankTime;
        fname << ".csv";
 
@@ -1020,12 +1056,108 @@ int MyBraidApp::Access(braid_Vector       /*u_*/,
 
 
        csvout << t << " "
-              << fieldEnergy << " "
-              << EzAmp << endl;
+              << globalEnergy << endl;
    }
 
    return 0;
 }
+
+
+
+//int MyBraidApp::Access(braid_Vector       /*u_*/,
+//                         BraidAccessStatus &astatus)
+//{
+//   //char       filename[255];
+//   //FILE      *file;
+//   //BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
+//
+//   // Extract information from astatus
+//   int done, level, iter, index;
+//   double t;
+//   astatus.GetTILD(&t, &iter, &level, &done);
+//   astatus.GetTIndex(&index);
+//
+//   double fieldEnergy = 0.0; 
+//   double EzAmp = 0.0;
+//
+//   auto rhoview = rhoPIF_m.getView();
+//   const int nghost = rhoPIF_m.getNghost();
+//   using mdrange_type = Kokkos::MDRangePolicy<Kokkos::Rank<Dim>>;
+//   
+//   const FieldLayout_t& layout = rhoPIF_m.getLayout(); 
+//   const Mesh_t& mesh = rhoPIF_m.get_mesh();
+//   const Vector<double, Dim>& dx = mesh.getMeshSpacing();
+//   const auto& domain = layout.getDomain();
+//   Vector<double, Dim> Len;
+//   Vector<int, Dim> N;
+//
+//   for (unsigned d=0; d < Dim; ++d) {
+//       N[d] = domain[d].length();
+//       Len[d] = dx[d] * N[d];
+//   }
+//
+//
+//   Kokkos::complex<double> imag = {0.0, 1.0};
+//   double pi = std::acos(-1.0);
+//   Kokkos::parallel_reduce("Ez energy and Max",
+//                         mdrange_type({0, 0, 0},
+//                                      {N[0],
+//                                       N[1],
+//                                       N[2]}),
+//                         KOKKOS_LAMBDA(const int i,
+//                                       const int j,
+//                                       const int k,
+//                                       double& tlSum,
+//                                       double& tlMax)
+//   {
+//   
+//       Vector<int, 3> iVec = {i, j, k};
+//       Vector<double, 3> kVec;
+//       double Dr = 0.0;
+//       for(size_t d = 0; d < Dim; ++d) {
+//           kVec[d] = 2 * pi / Len[d] * (iVec[d] - (N[d] / 2));
+//           Dr += kVec[d] * kVec[d];
+//       }
+//
+//       Kokkos::complex<double> Ek = {0.0, 0.0}; 
+//       bool isNotZero = (Dr != 0.0);
+//       double factor = isNotZero * (1.0 / (Dr + ((!isNotZero) * 1.0))); 
+//       Ek = -(imag * kVec[2] * rhoview(i+nghost,j+nghost,k+nghost) * factor);
+//       double myVal = Ek.real() * Ek.real() + Ek.imag() * Ek.imag();
+//
+//       tlSum += myVal;
+//
+//       double myValMax = std::sqrt(myVal);
+//
+//       if(myValMax > tlMax) tlMax = myValMax;
+//
+//   }, Kokkos::Sum<double>(fieldEnergy), Kokkos::Max<double>(EzAmp));
+//   
+//
+//   Kokkos::fence();
+//   double volume = (rmax_m[0] - rmin_m[0]) * (rmax_m[1] - rmin_m[1]) * (rmax_m[2] - rmin_m[2]);
+//   fieldEnergy *= volume;
+//
+//
+//   if(rankSpace == 0) {
+//       std::stringstream fname;
+//       fname << "data/FieldLandau_rank_";
+//       fname << rankTime;
+//       fname << ".csv";
+//
+//
+//       Inform csvout(NULL, fname.str().c_str(), Inform::APPEND, Ippl::Comm->rank());
+//       csvout.precision(10);
+//       csvout.setf(std::ios::scientific, std::ios::floatfield);
+//
+//
+//       csvout << t << " "
+//              << fieldEnergy << " "
+//              << EzAmp << endl;
+//   }
+//
+//   return 0;
+//}
 
 
 // --------------------------------------------------------------------------
@@ -1061,8 +1193,6 @@ int main (int argc, char *argv[])
    int num_procs_x = std::atoi(argv[15]);
    int timeProcs = std::atoi(argv[16]);
 
-   //ntime  = timeProcs;
-   //ntime  = 400;//timeProcs;
     ippl::Vector<int,Dim> nmPIF = {
         std::atoi(argv[1]),
         std::atoi(argv[2]),
@@ -1088,6 +1218,7 @@ int main (int argc, char *argv[])
    ntime = (int)(tEnd / dtFine);
 
    std::string coarsetype = argv[19];
+   int nLevels = std::atoi(argv[20]);
    std::string shapetype = argv[13];
    int shapedegree = std::atoi(argv[14]);
    double coarseTol = std::atof(argv[17]);  
@@ -1148,7 +1279,7 @@ int main (int argc, char *argv[])
         app.solver_mp->solve();
    }
 
-   app.initNUFFTs(FLPIF);
+   app.initNUFFTs(FLPIF, nLevels);
    app.initializeShapeFunctionPIF();
 
 
@@ -1167,17 +1298,16 @@ int main (int argc, char *argv[])
    // Initialize Braid Core Object and set some solver options
    BraidCore core(comm, &app);
    core.SetPrintLevel(3);
-   //core.SetMaxLevels(1);
-   core.SetMaxLevels(2);
-   core.SetMaxIter(timeProcs+1);
+   core.SetMaxLevels(nLevels);
+   core.SetMaxIter(10);
    //core.SetRelTol(tol);
    core.SetAbsTol(tol);
    int tnorm = 3; //Infinity norm
    core.SetTemporalNorm(tnorm);
-   core.SetCFactor(-1, 2);
-   //core.SetCFactor(-1, CFactor);
+   core.SetCFactor(-1, 1);
+   core.SetCFactor(0, CFactor);
    
-   //std::cout << "Rank: " << Ippl::Comm->rank() << "before core drive" << std::endl;
+   //std::cout << "Rank: " << Ippl::Comm->rank() << "Levels: "  <<  nLevels << std::endl;
    // Run Simulation
    core.SetBufAllocFree();
    //core.SetSeqSoln(1);
