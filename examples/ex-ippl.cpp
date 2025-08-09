@@ -1304,6 +1304,7 @@ int main (int argc, char *argv[])
    // Initialize Braid Core Object and set some solver options
    BraidCore core(comm, &app);
    core.SetPrintLevel(3);
+   core.SetAccessLevel(0);
    core.SetMaxLevels(nLevels);
    core.SetMaxIter(10);
    //core.SetRelTol(tol);
