@@ -69,6 +69,7 @@
 #include <random>
 #include "braid.hpp"
 #include "ipplDefs.hpp"
+#include "Utility/IpplTimings.h"
 
 // --------------------------------------------------------------------------
 // User-defined routines and objects 
@@ -432,6 +433,7 @@ public:
         auto &q = u.q;
         auto &E = u.E;
         rhoPIF_m = {0.0, 0.0};
+        q = Q_m / Np_m;
         PL_m.applyBC(Rtemp, PL_m.getRegionLayout().getDomain());
         scatterPIFNUFFT(q, rhoPIF_m, Sk_m, Rtemp, nufftType1_m[level].get(), spaceComm);
 
@@ -481,6 +483,7 @@ public:
         auto &q = u.q;
         auto &E = u.E;
         rhoPIC_m = 0.0;
+        q = Q_m / Np_m;
         PL_m.applyBC(Rtemp, PL_m.getRegionLayout().getDomain());
         scatter(q, rhoPIC_m, Rtemp, spaceComm);
     
@@ -660,6 +663,8 @@ int MyBraidApp::Step(braid_Vector    u_,
                      BraidStepStatus &pstatus)
 {
    
+   static IpplTimings::TimerRef finePropagator = IpplTimings::getTimer("finePropagator");
+   static IpplTimings::TimerRef coarsePropagator = IpplTimings::getTimer("coarsePropagator");
    BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
    double tstart;             // current time
    double tstop;              // evolve to this time
@@ -671,37 +676,48 @@ int MyBraidApp::Step(braid_Vector    u_,
    //unsigned int ntCoarse = std::ceil((tstop - tstart) / dtCoarse_m);
    unsigned int ntCoarse = std::ceil(dtSlice_m / dtCoarse_m);
 
+   //double dt = tstop - tstart;
 
    int level;
    int max_levels;
    pstatus.GetLevel(&level);
    pstatus.GetNLevels(&max_levels);
 
-   //dtFine_m = tstop - tstart;
-   //std::cout << "Rank: " << Ippl::Comm->rank() << " Level: " << level << " ntCoarse: " << ntCoarse << " tstart: " << tstart << " tstop: " << tstop << std::endl;
-   //std::cout << "Rank: " << Ippl::Comm->rank() << " Max Level: " << max_levels << std::endl;
-   
+   //std::cout << " level: " << level << " dt: " << dt << std::endl;
+   //LeapFrogPIF(*u, dt, ntFine, level);
    if(max_levels == 1) {
+        IpplTimings::startTimer(finePropagator);
         LeapFrogPIF(*u, dtFine_m, ntFine, level);
+        IpplTimings::stopTimer(finePropagator);
    }
    else {
         if(coarsetype_m == "PIF") {
             if(level == 0) {
+                IpplTimings::startTimer(finePropagator);
                  LeapFrogPIF(*u, dtFine_m, ntFine, level);
+                 IpplTimings::stopTimer(finePropagator);
             }
             else {
+                IpplTimings::startTimer(coarsePropagator);
                  LeapFrogPIF(*u, dtCoarse_m, ntCoarse, level);
+                IpplTimings::stopTimer(coarsePropagator);
             }
         }
         else if(coarsetype_m == "PIC") {
             if(level == 0) {
+                IpplTimings::startTimer(finePropagator);
                  LeapFrogPIF(*u, dtFine_m, ntFine, level);
+                 IpplTimings::stopTimer(finePropagator);
             }
             else if((level > 0) && (level < (max_levels-1))) {
+                IpplTimings::startTimer(coarsePropagator);
                  LeapFrogPIF(*u, dtCoarse_m, ntCoarse, level);
+                IpplTimings::stopTimer(coarsePropagator);
             }
             else {
+                IpplTimings::startTimer(coarsePropagator);
                  LeapFrogPIC(*u, dtCoarse_m, ntCoarse);  
+                IpplTimings::stopTimer(coarsePropagator);
             }
         }
    }
@@ -717,6 +733,8 @@ int MyBraidApp::Init(double        t,
                        braid_Vector *u_ptr)
 {
    BraidVector<PLayout_t> *u = new BraidVector<PLayout_t>(PL_m);
+   static IpplTimings::TimerRef particleCreation = IpplTimings::getTimer("particlesCreation");
+   IpplTimings::startTimer(particleCreation);
    u->create(nloc_m);
 
 
@@ -748,6 +766,7 @@ int MyBraidApp::Init(double        t,
    *u_ptr = (braid_Vector) u;
    //initRequiredFields();
    //initializeShapeFunctionPIF();
+   IpplTimings::stopTimer(particleCreation);
    return 0;
 
 }
@@ -755,6 +774,8 @@ int MyBraidApp::Init(double        t,
 int MyBraidApp::Clone(braid_Vector  u_,
                         braid_Vector *v_ptr)
 {
+   static IpplTimings::TimerRef Clone = IpplTimings::getTimer("Clone");
+   IpplTimings::startTimer(Clone);
    BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
    BraidVector<PLayout_t> *v = new BraidVector<PLayout_t>(PL_m); 
    //BraidVector *v = new BraidVector(u->value); 
@@ -767,14 +788,18 @@ int MyBraidApp::Clone(braid_Vector  u_,
 
    v->setParticleBC(ippl::BC::PERIODIC);
    *v_ptr = (braid_Vector) v;
+   IpplTimings::stopTimer(Clone);
    return 0;
 }
 
 
 int MyBraidApp::Free(braid_Vector u_)
 {
+   static IpplTimings::TimerRef Free = IpplTimings::getTimer("Free");
+   IpplTimings::startTimer(Free);
    BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
    delete u;
+   IpplTimings::stopTimer(Free);
    return 0;
 }
 
@@ -783,16 +808,21 @@ int MyBraidApp::Sum(double       alpha,
                       double       beta,
                       braid_Vector y_)
 {
+   static IpplTimings::TimerRef Sum = IpplTimings::getTimer("Sum");
+   IpplTimings::startTimer(Sum);
    BraidVector<PLayout_t> *x = (BraidVector<PLayout_t>*) x_;
    BraidVector<PLayout_t> *y = (BraidVector<PLayout_t>*) y_;
    (y->R) = alpha*(x->R) + beta*(y->R);
    (y->P) = alpha*(x->P) + beta*(y->P);
+   IpplTimings::stopTimer(Sum);
    return 0;
 }
 
 int MyBraidApp::SpatialNorm(braid_Vector  u_,
                               double       *norm_ptr)
 {
+   static IpplTimings::TimerRef SpatialNorm = IpplTimings::getTimer("SpatialNorm");
+   IpplTimings::startTimer(SpatialNorm);
    BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
    //dot = (u->value)*(u->value);
    //*norm_ptr = sqrt(dot);
@@ -811,6 +841,7 @@ int MyBraidApp::SpatialNorm(braid_Vector  u_,
    MPI_Allreduce(&localNorm, &globalNorm, 1, MPI_DOUBLE, MPI_SUM, spaceComm);
    *norm_ptr = std::sqrt(globalNorm / Np_m);
 
+   IpplTimings::stopTimer(SpatialNorm);
    return 0;
 }
 
@@ -818,11 +849,14 @@ int MyBraidApp::BufSize(int                *size_ptr,
                           BraidBufferStatus  &status)                           
 {
    
+   static IpplTimings::TimerRef BufSize = IpplTimings::getTimer("BufSize");
+   IpplTimings::startTimer(BufSize);
    //BraidVector<PLayout_t> utemp(PL_m);
    bufSize_m = utemp.packedSize(nloc_m); 
    *size_ptr = (int)bufSize_m;
    //std::cout << "Rank: " << Ippl::Comm->rank() << " In Buf size " << std::endl;
    //MPI_Barrier(MPI_COMM_WORLD);
+   IpplTimings::stopTimer(BufSize);
    return 0;
 }
 
@@ -830,6 +864,8 @@ int MyBraidApp::BufPack(braid_Vector       u_,
                           void               *buffer,
                           BraidBufferStatus  &status)
 {
+   static IpplTimings::TimerRef BufPack = IpplTimings::getTimer("BufPack");
+   IpplTimings::startTimer(BufPack);
    BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
    using buffer_type = ippl::Communicate::buffer_type;
    void* raw_ptr = buffer;
@@ -857,6 +893,7 @@ int MyBraidApp::BufPack(braid_Vector       u_,
    //PrintParticle(*u);
    //std::cout << "Rank: " << Ippl::Comm->rank() << " After Buf pack " << std::endl;
 
+   IpplTimings::stopTimer(BufPack);
    return 0;
 }
 
@@ -864,6 +901,8 @@ int MyBraidApp::BufUnpack(void              *buffer,
                             braid_Vector      *u_ptr,
                             BraidBufferStatus &status)
 {
+   static IpplTimings::TimerRef BufUnpack = IpplTimings::getTimer("BufUnpack");
+   IpplTimings::startTimer(BufUnpack);
    using buffer_type = ippl::Communicate::buffer_type;
    BraidVector<PLayout_t> *u = new BraidVector<PLayout_t>(PL_m);
    u->create(nloc_m);
@@ -891,6 +930,7 @@ int MyBraidApp::BufUnpack(void              *buffer,
    *u_ptr = (braid_Vector) u;
    //PrintParticle(*u);
    //std::cout << "Rank: " << Ippl::Comm->rank() << " After Buf un pack " << std::endl;
+   IpplTimings::stopTimer(BufUnpack);
    return 0;
 }
 
@@ -898,6 +938,8 @@ int MyBraidApp::BufAlloc(void              **buffer,
                         int               nbytes,
                         BraidBufferStatus &bstatus)
 {
+   static IpplTimings::TimerRef BufAlloc = IpplTimings::getTimer("BufAlloc");
+   IpplTimings::startTimer(BufAlloc);
    using buffer_type = ippl::Communicate::buffer_type;
    using archive_type = ippl::Communicate::archive_type;
 
@@ -908,11 +950,14 @@ int MyBraidApp::BufAlloc(void              **buffer,
    buffer_ptr_to_id_[raw_ptr] = id;
    *buffer = raw_ptr;
 
+   IpplTimings::stopTimer(BufAlloc);
    return 0;
 }
 
 braid_Int MyBraidApp::BufFree(void          **buffer)
 {
+   static IpplTimings::TimerRef BufFree = IpplTimings::getTimer("BufFree");
+   IpplTimings::startTimer(BufFree);
    void* raw_ptr = *buffer;
 
    auto it = buffer_ptr_to_id_.find(raw_ptr);
@@ -922,6 +967,7 @@ braid_Int MyBraidApp::BufFree(void          **buffer)
        buffer_ptr_to_id_.erase(it);
    }
    *buffer = nullptr;
+   IpplTimings::stopTimer(BufFree);
    return 0;
 }
 
@@ -1020,6 +1066,8 @@ braid_Int MyBraidApp::BufFree(void          **buffer)
 int MyBraidApp::Access(braid_Vector       u_,
                          BraidAccessStatus &astatus)
 {
+   static IpplTimings::TimerRef Access = IpplTimings::getTimer("Access");
+   IpplTimings::startTimer(Access);
    BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
 
    auto Eview = u->E.getView();
@@ -1059,6 +1107,7 @@ int MyBraidApp::Access(braid_Vector       u_,
               << globalEnergy << endl;
    }
 
+   IpplTimings::stopTimer(Access);
    return 0;
 }
 
@@ -1205,6 +1254,12 @@ int main (int argc, char *argv[])
         std::atoi(argv[6])
     };
 
+
+    static IpplTimings::TimerRef mainTimer = IpplTimings::getTimer("mainTimer");
+    //static IpplTimings::TimerRef computeErrors = IpplTimings::getTimer("computeErrors");
+
+   IpplTimings::startTimer(mainTimer);
+   
    size_type totalP = std::atoll(argv[7]);
    double tEnd = std::atof(argv[8]);
    tstop = tEnd;
@@ -1225,6 +1280,8 @@ int main (int argc, char *argv[])
 
    std::string coarsetype = argv[19];
    int nLevels = std::atoi(argv[20]);
+   int nrelax = std::atoi(argv[21]);
+   int nrelax0 = std::atoi(argv[22]);
    std::string shapetype = argv[13];
    int shapedegree = std::atoi(argv[14]);
    double coarseTol = std::atof(argv[17]);  
@@ -1314,6 +1371,10 @@ int main (int argc, char *argv[])
    core.SetCFactor(-1, 1);
    core.SetCFactor(0, CFactor);
    
+   //core.SetCFactor(0, 4);
+   core.SetNRelax(-1, nrelax);
+   core.SetNRelax(0, nrelax0);
+   
    //std::cout << "Rank: " << Ippl::Comm->rank() << "Levels: "  <<  nLevels << std::endl;
    // Run Simulation
    core.SetBufAllocFree();
@@ -1321,6 +1382,9 @@ int main (int argc, char *argv[])
    core.Drive();
    //std::cout << "Rank: " << Ippl::Comm->rank() << "after core drive" << std::endl;
 
+   IpplTimings::stopTimer(mainTimer);
+   //IpplTimings::print();
+   //IpplTimings::print(std::string("timing.dat"));
    // Clean up
    MPI_Comm_free(&spaceComm);
    MPI_Comm_free(&timeComm);

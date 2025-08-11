@@ -347,7 +347,7 @@ int main (int argc, char *argv[])
    tstart = 0.0;
    tstop  = tstart + ntime/2.;
 
-   int bufalloc = 1;
+   int bufalloc = 0;
   
    // Initialize MPI
    MPI_Init(&argc, &argv);
@@ -362,7 +362,8 @@ int main (int argc, char *argv[])
    core.SetPrintLevel(3);
    core.SetMaxLevels(2);
    core.SetAbsTol(1.0e-8);
-   core.SetCFactor(-1, 8);
+   core.SetCFactor(-1, 2);
+   core.SetNRelax(-1, 0);
   
    if(bufalloc) {
         core.SetBufAllocFree();
