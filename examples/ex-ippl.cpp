@@ -428,10 +428,12 @@ public:
     
         //BraidVector *u = (BraidVector*) u_;
         PLayout_t& PL = u.getLayout();
+        u.setParticleBC(ippl::BC::PERIODIC);
         auto &Rtemp = u.R;
         auto &Ptemp = u.P;
         auto &q = u.q;
         auto &E = u.E;
+        //if(level > 0) {
         rhoPIF_m = {0.0, 0.0};
         q = Q_m / Np_m;
         PL_m.applyBC(Rtemp, PL_m.getRegionLayout().getDomain());
@@ -441,6 +443,7 @@ public:
     
         // Solve for and gather E field
         gatherPIFNUFFT(E, rhoPIF_m, Sk_m, Rtemp, nufftType2_m[level].get(), q);
+        //}
 
         //Reset the value of q here as we used it as a temporary object in gather to 
         //save memory
@@ -478,6 +481,7 @@ public:
     
         //BraidVector *u = (BraidVector*) u_;
         PLayout_t& PL = u.getLayout();
+        u.setParticleBC(ippl::BC::PERIODIC);
         auto &Rtemp = u.R;
         auto &Ptemp = u.P;
         auto &q = u.q;
@@ -672,9 +676,10 @@ int MyBraidApp::Step(braid_Vector    u_,
    // Get time step information
    pstatus.GetTstartTstop(&tstart, &tstop);
 
-   unsigned int ntFine = 1;//std::ceil((tstop - tstart) / dtFine_m);
+   //unsigned int ntFine = 1;//std::ceil((tstop - tstart) / dtFine_m);
    //unsigned int ntCoarse = std::ceil((tstop - tstart) / dtCoarse_m);
    unsigned int ntCoarse = std::ceil(dtSlice_m / dtCoarse_m);
+   unsigned int ntFine = std::ceil(dtSlice_m / dtFine_m);
 
    //double dt = tstop - tstart;
 
@@ -743,6 +748,7 @@ int MyBraidApp::Init(double        t,
       u->R = 0.0;
       u->P = 0.0;
       u->q = 0.0;
+      u->E = 0.0;
    }
    else
    {
@@ -756,6 +762,14 @@ int MyBraidApp::Init(double        t,
                            u->R.getView(), u->P.getView(), rand_pool64, alpha_m, kw_m, minU, maxU));
     
       u->q = Q_m / Np_m;
+      //rhoPIF_m = {0.0, 0.0};
+      //scatterPIFNUFFT(u->q, rhoPIF_m, Sk_m, u->R, nufftType1_m[0].get(), spaceComm);
+
+      //rhoPIF_m = rhoPIF_m / ((rmax_m[0] - rmin_m[0]) * (rmax_m[1] - rmin_m[1]) * (rmax_m[2] - rmin_m[2]));
+    
+      //// Solve for and gather E field
+      //gatherPIFNUFFT(u->E, rhoPIF_m, Sk_m, u->R, nufftType2_m[0].get(), u->q);
+      //u->q = Q_m / Np_m;
 
       Kokkos::fence();
    }
@@ -1263,7 +1277,7 @@ int main (int argc, char *argv[])
    //unsigned int ntCoarse = std::ceil(dtSlice / dtCoarse);
    double tol = std::atof(argv[11]);
    //ntime = (int)(tEnd / dtFine);
-   ntime = std::ceil(tEnd / dtFine);
+   //ntime = std::ceil(tEnd / dtFine);
    //if ((ntime & (timeProcs - 1)) != 0) { // not divisible
    //     ntime = (ntime + timeProcs - 1) & ~(timeProcs - 1);
    //     //std::cout << n << " is not divisible by " << p
@@ -1287,9 +1301,10 @@ int main (int argc, char *argv[])
    MPI_Comm_size(spaceComm, &sizeSpace);
    MPI_Comm_size(timeComm, &sizeTime);
 
+   ntime = sizeTime;//std::ceil(tEnd / sizeTime);
    double dtSlice = tEndCycle / sizeTime;
    //int CFactor = (int)(dtSlice/dtFine) + 1;
-   int CFactor = std::ceil(dtSlice/dtFine);
+   //int CFactor = std::ceil(dtSlice/dtFine);
    // set up app structure
    MyBraidApp app(timeComm, spaceComm, rank, rankSpace, rankTime, 
                   sizeSpace, sizeTime, num_procs, tstart, tstop, 
@@ -1361,7 +1376,7 @@ int main (int argc, char *argv[])
    int tnorm = 3; //Infinity norm
    core.SetTemporalNorm(tnorm);
    core.SetCFactor(-1, 1);
-   core.SetCFactor(0, CFactor);
+   //core.SetCFactor(0, CFactor);
    
    //core.SetCFactor(0, 4);
    core.SetNRelax(-1, nrelax);
