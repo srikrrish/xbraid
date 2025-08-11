@@ -202,8 +202,8 @@ protected:
 
 private:
    int next_id_ = 1;
-   std::map<void*, int> buffer_ptr_to_id_;  // Tracks active buffers
-   //std::map<size_type, std::vector<ippl::Communicate::buffer_type>> buffer_pool_;  // Pool: size → list of buffers
+   std::map<void*, int> buffer_ptr_to_id_;  // raw ptr to id mapping
+   std::map<int, ippl::Communicate::buffer_type> buffer_pool_;  // Pool: unique id → list of buffers
 
 public:
 
@@ -934,96 +934,88 @@ int MyBraidApp::BufUnpack(void              *buffer,
    return 0;
 }
 
-int MyBraidApp::BufAlloc(void              **buffer,
-                        int               nbytes,
-                        BraidBufferStatus &bstatus)
-{
-   static IpplTimings::TimerRef BufAlloc = IpplTimings::getTimer("BufAlloc");
-   IpplTimings::startTimer(BufAlloc);
-   using buffer_type = ippl::Communicate::buffer_type;
-   using archive_type = ippl::Communicate::archive_type;
-
-   int id = next_id_++;
-   buffer_type buf = Ippl::Comm->getBuffer(id, bufSize_m);
-   void* raw_ptr = (void*)buf->getBuffer();
-
-   buffer_ptr_to_id_[raw_ptr] = id;
-   *buffer = raw_ptr;
-
-   IpplTimings::stopTimer(BufAlloc);
-   return 0;
-}
-
-braid_Int MyBraidApp::BufFree(void          **buffer)
-{
-   static IpplTimings::TimerRef BufFree = IpplTimings::getTimer("BufFree");
-   IpplTimings::startTimer(BufFree);
-   void* raw_ptr = *buffer;
-
-   auto it = buffer_ptr_to_id_.find(raw_ptr);
-   if (it != buffer_ptr_to_id_.end()) {
-       int id = it->second;
-       Ippl::Comm->deleteBuffer(id);
-       buffer_ptr_to_id_.erase(it);
-   }
-   *buffer = nullptr;
-   IpplTimings::stopTimer(BufFree);
-   return 0;
-}
-
-//int MyBraidApp::BufAlloc(void **buffer, int nbytes, BraidBufferStatus &bstatus)
+//int MyBraidApp::BufAlloc(void              **buffer,
+//                        int               nbytes,
+//                        BraidBufferStatus &bstatus)
 //{
-//    using buffer_type = ippl::Communicate::buffer_type;
+//   static IpplTimings::TimerRef BufAlloc = IpplTimings::getTimer("BufAlloc");
+//   IpplTimings::startTimer(BufAlloc);
+//   using buffer_type = ippl::Communicate::buffer_type;
+//   using archive_type = ippl::Communicate::archive_type;
 //
-//    //buffer_type buf;
-//    int id;
+//   int id = next_id_++;
+//   buffer_type buf = Ippl::Comm->getBuffer(id, bufSize_m);
+//   void* raw_ptr = (void*)buf->getBuffer();
 //
-//    // Try to reuse buffer from the pool
-//    auto &pool = buffer_pool_[bufSize_m];
-//    if (!pool.empty()) {
-//        buffer_type buf = pool.back();
-//        pool.pop_back();
-//        //std::cout << "Reusing buffer of size " << nbytes << std::endl;
+//   buffer_ptr_to_id_[raw_ptr] = id;
+//   *buffer = raw_ptr;
 //
-//        void* raw_ptr = static_cast<void*>(buf->getBuffer());
-//
-//        // Reconstruct ID from reused buffer via raw pointer lookup
-//        id = next_id_++; // Generate new ID for reuse tracking (can also cache if needed)
-//        buffer_ptr_to_id_[raw_ptr] = id;
-//
-//        *buffer = raw_ptr;
-//        return 0;
-//    }
-//
-//    // No buffer to reuse; create new one
-//    id = next_id_++;
-//    buffer_type buf = Ippl::Comm->getBuffer(id, bufSize_m);
-//    void* raw_ptr = static_cast<void*>(buf->getBuffer());
-//
-//    buffer_ptr_to_id_[raw_ptr] = id;
-//    *buffer = raw_ptr;
-//
-//    return 0;
+//   IpplTimings::stopTimer(BufAlloc);
+//   return 0;
 //}
 //
-//braid_Int MyBraidApp::BufFree(void **buffer)
+//braid_Int MyBraidApp::BufFree(void          **buffer)
 //{
-//    void* raw_ptr = *buffer;
+//   static IpplTimings::TimerRef BufFree = IpplTimings::getTimer("BufFree");
+//   IpplTimings::startTimer(BufFree);
+//   void* raw_ptr = *buffer;
 //
-//    auto it = buffer_ptr_to_id_.find(raw_ptr);
-//    if (it != buffer_ptr_to_id_.end()) {
-//        int id = it->second;
-//
-//        ippl::Communicate::buffer_type buf = Ippl::Comm->getBuffer(id, bufSize_m);
-//        size_type size = buf->getBufferSize(); 
-//        buffer_pool_[size].push_back(buf);
-//
-//        buffer_ptr_to_id_.erase(it);
-//    }
-//
-//    *buffer = nullptr;
-//    return 0;
+//   auto it = buffer_ptr_to_id_.find(raw_ptr);
+//   if (it != buffer_ptr_to_id_.end()) {
+//       int id = it->second;
+//       Ippl::Comm->deleteBuffer(id);
+//       buffer_ptr_to_id_.erase(it);
+//   }
+//   *buffer = nullptr;
+//   IpplTimings::stopTimer(BufFree);
+//   return 0;
 //}
+
+int MyBraidApp::BufAlloc(void **buffer, int nbytes, BraidBufferStatus &bstatus)
+{
+    using buffer_type = ippl::Communicate::buffer_type;
+
+    int id;
+
+    // Try to reuse buffer from the pool
+    if (!buffer_pool_.empty()) {
+        // Reuse a buffer
+        auto it = buffer_pool_.begin();
+        id = it->first;
+        buffer_type buf = it->second;
+        buffer_pool_.erase(it);
+
+        *buffer = static_cast<void*>(buf->getBuffer());
+        return 0;
+    }
+
+    // No buffer to reuse; create new one
+    id = next_id_++;
+    buffer_type buf = Ippl::Comm->getBuffer(id, bufSize_m);
+    void* raw_ptr = static_cast<void*>(buf->getBuffer());
+
+    buffer_ptr_to_id_[raw_ptr] = id;
+    *buffer = raw_ptr;
+
+    return 0;
+}
+
+braid_Int MyBraidApp::BufFree(void **buffer)
+{
+    void* raw_ptr = *buffer;
+
+    auto it = buffer_ptr_to_id_.find(raw_ptr);
+    if (it != buffer_ptr_to_id_.end()) {
+        int id = it->second;
+
+        ippl::Communicate::buffer_type buf = Ippl::Comm->getBuffer(id, bufSize_m);
+        // Return to pool
+        buffer_pool_[id] = buf;
+    }
+
+    *buffer = nullptr;
+    return 0;
+}
 
 
 //int MyBraidApp::Access(braid_Vector       u_,
