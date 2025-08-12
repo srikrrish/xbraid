@@ -688,7 +688,7 @@ int MyBraidApp::Step(braid_Vector    u_,
    pstatus.GetLevel(&level);
    pstatus.GetNLevels(&max_levels);
 
-   //std::cout << " level: " << level << " dt: " << dt << std::endl;
+   //std::cout << "Rank: " << Ippl::Comm->rank() << " Max levels: " << max_levels << std::endl;
    //LeapFrogPIF(*u, dt, ntFine, level);
    if(max_levels == 1) {
         IpplTimings::startTimer(finePropagator);
@@ -1385,6 +1385,8 @@ int main (int argc, char *argv[])
    //std::cout << "Rank: " << Ippl::Comm->rank() << "Levels: "  <<  nLevels << std::endl;
    // Run Simulation
    core.SetBufAllocFree();
+   //core.SetFMG();
+   //core.SetCRelaxWt(-1, 1.3);
    //core.SetSeqSoln(1);
    core.Drive();
    //std::cout << "Rank: " << Ippl::Comm->rank() << "after core drive" << std::endl;
