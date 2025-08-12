@@ -232,7 +232,6 @@ public:
    size_type nloc_m;
    
    std::shared_ptr<Solver_t> solver_mp;
-   //std::shared_ptr<FFT_t> fft_mp;
    
    double time_m;
 
@@ -243,14 +242,13 @@ public:
    PLayout_t PL_m;
 
    int shapedegree_m;
-   std::string coarse = "Coarse";
-   std::string fine = "Fine";
 
    double dtFine_m;
    double dtCoarse_m;
    double dtSlice_m;
 
    double coarseTol_m, fineTol_m;
+   double cfactortime_m, cfactorspace_m;
 
    MPI_Comm spaceComm, timeComm;
 
@@ -265,7 +263,6 @@ public:
    // We will need the MPI Rank
    int rank, rankSpace, rankTime;
    int num_procs, sizeSpace, sizeTime;
-   int bufChoose_m;
 
    // Constructor 
    MyBraidApp(MPI_Comm comm_t_, MPI_Comm &comm_s_, int rank_, int rankSpace_, 
@@ -274,7 +271,7 @@ public:
                        Vector_i nmPIF, Vector_i nrPIC, Vector_t rmin, Vector_t rmax, 
                        size_type Np, Vector_t alpha, Vector_t kw, double dtFine, 
                        double dtCoarse, double dtSlice, std::string& coarsetype, std::string& shapetype,
-                       int shapedegree, double coarseTol, double fineTol);
+                       int shapedegree, double coarseTol, double fineTol, double cfactortime, double cfactorspace);
 
 
    // Deconstructor
@@ -311,14 +308,8 @@ public:
             auto& plist = fftParamsPerLevel[level];
         
             //Example: vary tolerance by level
-            double tol=fineTol_m;
-            if(numLevels == 2) {
-                tol = (level == 0) ? fineTol_m : coarseTol_m;
-            }
-            else {
-                double coarseTol = fineTol_m * std::pow(10.0, level);
-                tol = (level == 0) ? fineTol_m : coarseTol;
-            }
+            double coarseTol = coarseTol_m * std::pow(cfactorspace_m, level);
+            double tol = (level == 0) ? fineTol_m : coarseTol;
             plist.add("gpu_method", 2);
             plist.add("gpu_sort", 0);
             plist.add("gpu_kerevalmeth", 1);
@@ -384,45 +375,6 @@ public:
        }
 
    }
-
-//   void initRequiredFields() {
-//
-//       ippl::NDIndex<Dim> domainPIC;
-//       ippl::NDIndex<Dim> domainPIF;
-//       for (unsigned i = 0; i< Dim; i++) {
-//           domainPIC[i] = ippl::Index(nrPIC_m[i]);
-//           domainPIF[i] = ippl::Index(nmPIF_m[i]);
-//       }
-//
-//       ippl::e_dim_tag decomp[Dim];
-//       for (unsigned d = 0; d < Dim; ++d) {
-//           decomp[d] = ippl::SERIAL;
-//       }
-//
-//       Vector_t origin = {rmin_m[0], rmin_m[1], rmin_m[2]};
-//
-//       const bool isAllPeriodic=true;
-//       Mesh_t meshPIC(domainPIC, hrPIC_m, origin);
-//       Mesh_t meshPIF(domainPIF, hrPIF_m, origin);
-//       FieldLayout_t FLPIC(domainPIC, decomp, isAllPeriodic);
-//       FieldLayout_t FLPIF(domainPIF, decomp, isAllPeriodic);
-//       //PLayout_t PL(FLPIC, meshPIC);
-//
-//       PL_m.updateLayout(FLPIC, meshPIC);
-//       rhoPIF_m.initialize(meshPIF, FLPIF);
-//       Sk_m.initialize(meshPIF, FLPIF);
-//
-//       if(coarsetype_m == "PIC") {
-//            rhoPIC_m.initialize(meshPIC, FLPIC);
-//            EfieldPIC_m.initialize(meshPIC, FLPIC);
-//            initFFTSolver();
-//	        //Dummy solve done to do the initializations for heFFTe
-//            rhoPIC_m = 0.0;
-//            solver_mp->solve();
-//       }
-//
-//       initNUFFTs(FLPIF);
-//   }
 
    void LeapFrogPIF(BraidVector<PLayout_t>& u, const double& dt, const unsigned int& nt, const int& level) {
     
@@ -625,7 +577,7 @@ MyBraidApp::MyBraidApp(MPI_Comm comm_t_, MPI_Comm &comm_s_, int rank_, int rankS
                        Vector_i nmPIF, Vector_i nrPIC, Vector_t rmin, Vector_t rmax, 
                        size_type Np, Vector_t alpha, Vector_t kw, double dtFine, 
                        double dtCoarse, double dtSlice, std::string& coarsetype, std::string& shapetype,
-                       int shapedegree, double coarseTol, double fineTol) : BraidApp(comm_t_, tstart_, tstop_, ntime_)
+                       int shapedegree, double coarseTol, double fineTol, double cfactortime, double cfactorspace) : BraidApp(comm_t_, tstart_, tstop_, ntime_)
 {
    timeComm = comm_t_;
    spaceComm = comm_s_;
@@ -657,7 +609,8 @@ MyBraidApp::MyBraidApp(MPI_Comm comm_t_, MPI_Comm &comm_s_, int rank_, int rankS
    shapedegree_m = shapedegree;
    coarseTol_m = coarseTol;
    fineTol_m = fineTol;
-   bufChoose_m = 1;
+   cfactortime_m = cfactortime;
+   cfactorspace_m = cfactorspace;
 }
 
 // 
@@ -678,10 +631,16 @@ int MyBraidApp::Step(braid_Vector    u_,
 
    //unsigned int ntFine = 1;//std::ceil((tstop - tstart) / dtFine_m);
    //unsigned int ntCoarse = std::ceil((tstop - tstart) / dtCoarse_m);
-   unsigned int ntCoarse = std::ceil(dtSlice_m / dtCoarse_m);
+   //unsigned int ntCoarse = std::ceil(dtSlice_m / dtCoarse_m);
+   unsigned int ntCoarse;// = std::ceil(dtSlice_m / dtCoarse_m);
    unsigned int ntFine = std::ceil(dtSlice_m / dtFine_m);
 
+   //unsigned int ntFine = 1;
+   //unsigned int ntCoarse = 1;
+
    //double dt = tstop - tstart;
+   //dtFine_m = dt;
+   //double dtCoarselevel = dt;
 
    int level;
    int max_levels;
@@ -689,13 +648,14 @@ int MyBraidApp::Step(braid_Vector    u_,
    pstatus.GetNLevels(&max_levels);
 
    //std::cout << "Rank: " << Ippl::Comm->rank() << " Max levels: " << max_levels << std::endl;
-   //LeapFrogPIF(*u, dt, ntFine, level);
    if(max_levels == 1) {
         IpplTimings::startTimer(finePropagator);
         LeapFrogPIF(*u, dtFine_m, ntFine, level);
         IpplTimings::stopTimer(finePropagator);
    }
    else {
+        double dtCoarselevel = dtCoarse_m * std::pow(cfactortime_m, level);
+        ntCoarse = std::ceil(dtSlice_m / dtCoarselevel);
         if(coarsetype_m == "PIF") {
             if(level == 0) {
                 IpplTimings::startTimer(finePropagator);
@@ -704,7 +664,7 @@ int MyBraidApp::Step(braid_Vector    u_,
             }
             else {
                 IpplTimings::startTimer(coarsePropagator);
-                 LeapFrogPIF(*u, dtCoarse_m, ntCoarse, level);
+                 LeapFrogPIF(*u, dtCoarselevel, ntCoarse, level);
                 IpplTimings::stopTimer(coarsePropagator);
             }
         }
@@ -716,12 +676,12 @@ int MyBraidApp::Step(braid_Vector    u_,
             }
             else if((level > 0) && (level < (max_levels-1))) {
                 IpplTimings::startTimer(coarsePropagator);
-                 LeapFrogPIF(*u, dtCoarse_m, ntCoarse, level);
+                 LeapFrogPIF(*u, dtCoarselevel, ntCoarse, level);
                 IpplTimings::stopTimer(coarsePropagator);
             }
             else {
                 IpplTimings::startTimer(coarsePropagator);
-                 LeapFrogPIC(*u, dtCoarse_m, ntCoarse);  
+                 LeapFrogPIC(*u, dtCoarselevel, ntCoarse);  
                 IpplTimings::stopTimer(coarsePropagator);
             }
         }
@@ -774,12 +734,8 @@ int MyBraidApp::Init(double        t,
       Kokkos::fence();
    }
 
-   //bufSize_m = u->packedsize(nloc_m);
-   //std::cout << "Rank: " << Ippl::Comm->rank() << " Buf size in Init: " << bufSize_m << std::endl;
    u->setParticleBC(ippl::BC::PERIODIC);
    *u_ptr = (braid_Vector) u;
-   //initRequiredFields();
-   //initializeShapeFunctionPIF();
    IpplTimings::stopTimer(particleCreation);
    return 0;
 
@@ -792,8 +748,6 @@ int MyBraidApp::Clone(braid_Vector  u_,
    IpplTimings::startTimer(Clone);
    BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
    BraidVector<PLayout_t> *v = new BraidVector<PLayout_t>(PL_m); 
-   //BraidVector *v = new BraidVector(u->value); 
-   //*v_ptr = (braid_Vector) v;
    v->create(nloc_m);
    Kokkos::deep_copy(v->R.getView(), u->R.getView());
    Kokkos::deep_copy(v->P.getView(), u->P.getView());
@@ -838,8 +792,6 @@ int MyBraidApp::SpatialNorm(braid_Vector  u_,
    static IpplTimings::TimerRef SpatialNorm = IpplTimings::getTimer("SpatialNorm");
    IpplTimings::startTimer(SpatialNorm);
    BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
-   //dot = (u->value)*(u->value);
-   //*norm_ptr = sqrt(dot);
 
    auto Pview = u->P.getView();
    double localNorm = 0.0;
@@ -868,8 +820,6 @@ int MyBraidApp::BufSize(int                *size_ptr,
    //BraidVector<PLayout_t> utemp(PL_m);
    bufSize_m = utemp.packedSize(nloc_m); 
    *size_ptr = (int)bufSize_m;
-   //std::cout << "Rank: " << Ippl::Comm->rank() << " In Buf size " << std::endl;
-   //MPI_Barrier(MPI_COMM_WORLD);
    IpplTimings::stopTimer(BufSize);
    return 0;
 }
@@ -884,28 +834,10 @@ int MyBraidApp::BufPack(braid_Vector       u_,
    using buffer_type = ippl::Communicate::buffer_type;
    void* raw_ptr = buffer;
    int id = buffer_ptr_to_id_.at(raw_ptr);
-   //buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_SEND, bufSize_m);
    buffer_type buf = Ippl::Comm->getBuffer(id, bufSize_m);
    u->serialize(*buf, nloc_m);
    status.SetSize(buf->getSize());
    buf->resetWritePos();
-   //std::cout << "Rank: " << Ippl::Comm->rank() << " Before Buf pack " << std::endl;
-   //buf->copyBuffer(buffer, (int)bufSize_m, 1);
-   //std::cout << "Rank: " << Ippl::Comm->rank() << " After Buf pack " << std::endl;
-   //if (bufChoose_m == 2) {
-   //     buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_SEND, bufSize_m);
-   //     u->serialize(*buf, nloc_m);
-   //     status.SetSize(buf->getSize());
-   //     buf->resetWritePos();
-   //}
-   //else if (bufChoose_m == 1) {
-   //     buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_RECV, bufSize_m);
-   //     u->serialize(*buf, nloc_m);
-   //     status.SetSize(buf->getSize());
-   //     buf->resetWritePos();
-   //}
-   //PrintParticle(*u);
-   //std::cout << "Rank: " << Ippl::Comm->rank() << " After Buf pack " << std::endl;
 
    IpplTimings::stopTimer(BufPack);
    return 0;
@@ -921,29 +853,13 @@ int MyBraidApp::BufUnpack(void              *buffer,
    BraidVector<PLayout_t> *u = new BraidVector<PLayout_t>(PL_m);
    u->create(nloc_m);
    u->setParticleBC(ippl::BC::PERIODIC);
-   //if (bufChoose_m == 2) {
-   //     buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_SEND, bufSize_m);
-   //     u->deserialize(*buf, nloc_m);
-   //     buf->resetReadPos();
-   //}
-   //else if (bufChoose_m == 1) {
-   //     buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_RECV, bufSize_m);
-   //     u->deserialize(*buf, nloc_m);
-   //     buf->resetReadPos();
-   //}
 
    void* raw_ptr = buffer;
    int id = buffer_ptr_to_id_.at(raw_ptr);
-   //buffer_type buf = Ippl::Comm->getBuffer(IPPL_PARAREAL_RECV, bufSize_m);
    buffer_type buf = Ippl::Comm->getBuffer(id, bufSize_m);
-   //std::cout << "Rank: " << Ippl::Comm->rank() << " Before Buf unpack " << std::endl;
-   //buf->copyBuffer(buffer, (int)bufSize_m, 2);
-   //std::cout << "Rank: " << Ippl::Comm->rank() << " After Buf unpack " << std::endl;
    u->deserialize(*buf, nloc_m);
    buf->resetReadPos();
    *u_ptr = (braid_Vector) u;
-   //PrintParticle(*u);
-   //std::cout << "Rank: " << Ippl::Comm->rank() << " After Buf un pack " << std::endl;
    IpplTimings::stopTimer(BufUnpack);
    return 0;
 }
@@ -1288,6 +1204,8 @@ int main (int argc, char *argv[])
    int nLevels = std::atoi(argv[20]);
    int nrelax = std::atoi(argv[21]);
    int nrelax0 = std::atoi(argv[22]);
+   double cfactortime = std::atof(argv[23]);
+   double cfactorspace = std::atof(argv[24]);
    std::string shapetype = argv[13];
    int shapedegree = std::atoi(argv[14]);
    double coarseTol = std::atof(argv[17]);  
@@ -1310,7 +1228,7 @@ int main (int argc, char *argv[])
                   sizeSpace, sizeTime, num_procs, tstart, tstop, 
                   ntime, nmPIF, nrPIC, rmin, rmax, totalP, alpha, kw,
                   dtFine, dtCoarse, dtSlice, coarsetype, shapetype, shapedegree,
-                  coarseTol, fineTol);
+                  coarseTol, fineTol, cfactortime, cfactorspace);
 
    //std::cout << "Rank: " << Ippl::Comm->rank() << "after braid app" << std::endl;
 
@@ -1375,8 +1293,9 @@ int main (int argc, char *argv[])
    core.SetAbsTol(tol);
    int tnorm = 3; //Infinity norm
    core.SetTemporalNorm(tnorm);
+   //core.SetCFactor(-1, 2);
+   //core.SetCFactor(0, 8);
    core.SetCFactor(-1, 1);
-   //core.SetCFactor(0, CFactor);
    
    //core.SetCFactor(0, 4);
    core.SetNRelax(-1, nrelax);
