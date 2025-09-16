@@ -44,6 +44,11 @@ MFEM_CONFIG_MK = $(MFEM_DIR)/config/config.mk
 MFEM_LIB_FILE = mfem_is_not_built
 -include $(MFEM_CONFIG_MK)
 
+# Default build type
+BUILD ?= cpu
+
+
+ifeq ($(BUILD),gpu)
 KOKKOS_DIR = ../../kokkos_4_5_01_install_2025_ompi_toolchain/4.5.01
 KOKKOS_INC_DIR = -I$(KOKKOS_DIR)/include
 KOKKOS_LIB = -L$(KOKKOS_DIR)/lib64 -lkokkoscontainers -lkokkoscore -lkokkossimd
@@ -65,9 +70,31 @@ export NVCC_WRAPPER_DEFAULT_COMPILER=/p/software/default/stages/2025/software/Op
 IPPL_DIR = ../../ippl_install_buffer
 IPPL_CXX = ${KOKKOS_DIR}/bin/nvcc_wrapper
 #IPPL_CXX = $(MPICXX)
-IPPL_CXXFLAGS = -O3 -std=c++20 --expt-extended-lambda -arch=sm_80 -Wno-deprecated-declarations
+IPPL_CXXFLAGS = -O3 -std=c++20 --expt-extended-lambda -arch=sm_80 -Wno-deprecated-declarations -DGPU_BUILD
 #IPPL_CXXFLAGS = -O3 -std=c++20
 IPPL_EXT_LIBS = $(KOKKOS_LIB) $(HEFFTE_LIB) $(FINUFFT_LIB) $(CUDA_LIB)
+else ifeq ($(BUILD),cpu)
+KOKKOS_DIR = ../../kokkos_4_5_01_cpu_install_2025_ompi_toolchain/4.5.01
+KOKKOS_INC_DIR = -I$(KOKKOS_DIR)/include
+KOKKOS_LIB = -L$(KOKKOS_DIR)/lib64 -lkokkoscontainers -lkokkoscore -lkokkossimd
+
+HEFFTE_DIR = ../../heffte_2_4_1_cpu_install_2025_ompi_toolchain/2.4.1
+HEFFTE_INC_DIR = -I$(HEFFTE_DIR)/include
+HEFFTE_LIB = -L$(HEFFTE_DIR)/lib64 -lheffte
+
+FINUFFT_DIR = ../../finufft_2_4_1_cpu_install_2025_ompi_toolchain/2.4.1
+FINUFFT_INC_DIR = -I$(FINUFFT_DIR)/include
+FINUFFT_LIB = -L$(FINUFFT_DIR)/lib64 -lfinufft
+
+
+IPPL_DIR = ../../ippl_cpu_install
+#IPPL_CXX = ${KOKKOS_DIR}/bin/nvcc_wrapper
+IPPL_CXX = $(MPICXX)
+#IPPL_CXXFLAGS = -O3 -std=c++20 --expt-extended-lambda -arch=sm_80 -Wno-deprecated-declarations
+IPPL_CXXFLAGS = -O3 -std=c++20 -fopenmp -Wno-deprecated-declarations -DCPU_BUILD
+IPPL_EXT_LIBS = $(KOKKOS_LIB) $(HEFFTE_LIB) $(FINUFFT_LIB) -fopenmp
+endif
+
 IPPL_LIB = -L$(IPPL_DIR)/lib -lippl
 IPPL_LIBS = $(IPPL_LIB) $(IPPL_EXT_LIBS) ${MPI_CXX_LIBRARIES}
 IPPL_INCFLAGS = -I$(IPPL_DIR)/include $(KOKKOS_INC_DIR) $(HEFFTE_INC_DIR) $(FINUFFT_INC_DIR)
@@ -175,6 +202,11 @@ ex-07: ex-07.c $(BRAID_LIB_FILE)
 	$(MPICC) $(CFLAGS) $(BRAID_FLAGS) $(@).c -o $@ $(BRAID_LIB_FILE) $(LFLAGS)
 
 ex-ippl: ex-ippl.cpp $(BRAID_LIB_FILE) $(IPPL_LIB_FILE)
+	@echo "Building" $@ "..."
+	$(IPPL_CXX) $(CXXFLAGS) $(BRAID_FLAGS) $(IPPL_FLAGS) \
+	$(@).cpp -o $@ $(BRAID_LIB_FILE) $(IPPL_LIBS) $(LFLAGS)
+
+penning-ippl: penning-ippl.cpp $(BRAID_LIB_FILE) $(IPPL_LIB_FILE)
 	@echo "Building" $@ "..."
 	$(IPPL_CXX) $(CXXFLAGS) $(BRAID_FLAGS) $(IPPL_FLAGS) \
 	$(@).cpp -o $@ $(BRAID_LIB_FILE) $(IPPL_LIBS) $(LFLAGS)

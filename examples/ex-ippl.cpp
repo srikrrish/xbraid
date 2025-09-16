@@ -207,15 +207,15 @@ private:
 
 public:
 
-   CxField_t rhoPIF_m;
-   Field_t Sk_m;
+   std::vector<CxField_t> rhoPIF_m;
+   std::vector<Field_t> Sk_m;
    Field_t rhoPIC_m;
    VField_t EfieldPIC_m;
 
    ippl::e_dim_tag decomp_m[3];
 
    Vector_t hrPIC_m;
-   Vector_t hrPIF_m;
+   std::vector<Vector_t> hrPIF_m;
    Vector_t rmin_m;
    Vector_t rmax_m;
    Vector_t length_m;
@@ -224,7 +224,7 @@ public:
    Vector_t kw_m;
 
    Vector_i nrPIC_m;
-   Vector_i nmPIF_m;
+   std::vector<Vector_i> nmPIF_m;
 
    double Q_m;
 
@@ -239,7 +239,7 @@ public:
 
    std::string coarsetype_m;
 
-   PLayout_t PL_m;
+   std::vector<PLayout_t> PL_m;
 
    int shapedegree_m;
 
@@ -257,9 +257,10 @@ public:
 
    std::vector<std::shared_ptr<ippl::FFT<ippl::NUFFTransform, 3, double>>> nufftType1_m;
    std::vector<std::shared_ptr<ippl::FFT<ippl::NUFFTransform, 3, double>>> nufftType2_m;
+   //std::vector<PLayout_t> PL_m;
    //BraidVector<PLayout_t> utemp(PLayout_t);
    
-   BraidVector<PLayout_t> utemp{PL_m};
+   //BraidVector<PLayout_t> utemp{PL_m};
    // We will need the MPI Rank
    int rank, rankSpace, rankTime;
    int num_procs, sizeSpace, sizeTime;
@@ -268,7 +269,7 @@ public:
    MyBraidApp(MPI_Comm comm_t_, MPI_Comm &comm_s_, int rank_, int rankSpace_, 
                        int rankTime_, int sizeSpace_, int sizeTime_, int num_procs_, 
                        double tstart_, double tstop_, int ntime_, 
-                       Vector_i nmPIF, Vector_i nrPIC, Vector_t rmin, Vector_t rmax, 
+                       Vector_i nrPIC, Vector_t rmin, Vector_t rmax, 
                        size_type Np, Vector_t alpha, Vector_t kw, double dtFine, 
                        double dtCoarse, double dtSlice, std::string& coarsetype, std::string& shapetype,
                        int shapedegree, double coarseTol, double fineTol, double cfactortime, double cfactorspace);
@@ -296,13 +297,14 @@ public:
        solver_mp->setLhs(EfieldPIC_m);
    }
    
-   void initNUFFTs(FieldLayout_t& FLPIF, int numLevels) {
+   void initNUFFTs(std::vector<FieldLayout_t>& FLPIF, int numLevels) {
 
         std::vector<ippl::ParameterList> fftParamsPerLevel;
        
         fftParamsPerLevel.resize(numLevels);
         nufftType1_m.resize(numLevels);
         nufftType2_m.resize(numLevels);
+        
 
         for (int level = 0; level < numLevels; ++level) {
             auto& plist = fftParamsPerLevel[level];
@@ -310,68 +312,78 @@ public:
             //Example: vary tolerance by level
             double coarseTol = coarseTol_m * std::pow(cfactorspace_m, level);
             double tol = (level == 0) ? fineTol_m : coarseTol;
+            plist.add("tolerance", tol);
+#ifdef GPU_BUILD
             plist.add("gpu_method", 2);
             plist.add("gpu_sort", 0);
             plist.add("gpu_kerevalmeth", 1);
-            plist.add("tolerance", tol);
             plist.add("gpu_binsizex", 8);
             plist.add("gpu_binsizey", 8);
             plist.add("gpu_binsizez", 2);
             plist.add("gpu_maxsubprobsize", 1024);
-            plist.add("use_cufinufft_defaults", false);
+#else
+            
+            plist.add("spread_kerevalmeth", 1);
+            plist.add("spread_sort", 2);
+            plist.add("nthreads", 0);
+#endif
+            plist.add("use_finufft_defaults", false);
 
-            nufftType1_m[level] = std::make_shared<ippl::FFT<ippl::NUFFTransform, 3, double>>(FLPIF, nloc_m, 1, plist);
-            nufftType2_m[level] = std::make_shared<ippl::FFT<ippl::NUFFTransform, 3, double>>(FLPIF, nloc_m, 2, plist);
+            nufftType1_m[level] = std::make_shared<ippl::FFT<ippl::NUFFTransform, 3, double>>(FLPIF[level], nloc_m, 1, plist);
+            nufftType2_m[level] = std::make_shared<ippl::FFT<ippl::NUFFTransform, 3, double>>(FLPIF[level], nloc_m, 2, plist);
         }
    }
 
-   void initializeShapeFunctionPIF() {
+   void initializeShapeFunctionPIF(int numLevels) {
 
        using mdrange_type = Kokkos::MDRangePolicy<Kokkos::Rank<3>>;
-       auto Skview = Sk_m.getView();
-       auto N = nmPIF_m;
-       const int nghost = Sk_m.getNghost();
-       const Mesh_t& mesh = rhoPIF_m.get_mesh();
-       const Vector_t& dx = mesh.getMeshSpacing();
        const Vector_t& Len = rmax_m - rmin_m;
        const double pi = std::acos(-1.0);
        int order = shapedegree_m + 1;
-       
-       if(shapetype_m == "Gaussian") {
 
-           throw IpplException("initializeShapeFunctionPIF",
-                               "Gaussian shape function not implemented yet");
+       for (int level = 0; level < numLevels; ++level) {
+            auto Skview = Sk_m[level].getView();
+            auto N = nmPIF_m[level];
+            const int nghost = Sk_m[level].getNghost();
+            const Mesh_t& mesh = rhoPIF_m[level].get_mesh();
+            const Vector_t& dx = mesh.getMeshSpacing();
+            
+            if(shapetype_m == "Gaussian") {
 
-       }
-       else if(shapetype_m == "B-spline") {
+                throw IpplException("initializeShapeFunctionPIF",
+                                    "Gaussian shape function not implemented yet");
 
-           Kokkos::parallel_for("B-spline shape functions",
-                               mdrange_type({0, 0, 0},
-                                            {N[0], N[1], N[2]}),
-                               KOKKOS_LAMBDA(const int i,
-                                             const int j,
-                                             const int k)
-           {
-               
-               Vector<int, 3> iVec = {i, j, k};
-               Vector<double, 3> kVec;
-               double Sk = 1.0;
-               for(size_t d = 0; d < Dim; ++d) {
-                   kVec[d] = 2 * pi / Len[d] * (iVec[d] - (N[d] / 2));
-                   double khbytwo = kVec[d] * dx[d] / 2;
-                   bool isNotZero = (khbytwo != 0.0);
-                   double factor = (1.0 / (khbytwo + ((!isNotZero) * 1.0)));
-                   double arg = isNotZero * (Kokkos::sin(khbytwo) * factor) + 
-                                (!isNotZero) * 1.0;
-                   //Fourier transform of CIC
-                   Sk *= std::pow(arg, order);
-               }
-                   Skview(i+nghost, j+nghost, k+nghost) = Sk;
-           });
-       }
-       else {
-           throw IpplException("initializeShapeFunctionPIF",
-                               "Unrecognized shape function type");
+            }
+            else if(shapetype_m == "B-spline") {
+
+                Kokkos::parallel_for("B-spline shape functions",
+                                    mdrange_type({0, 0, 0},
+                                                 {N[0], N[1], N[2]}),
+                                    KOKKOS_LAMBDA(const int i,
+                                                  const int j,
+                                                  const int k)
+                {
+                    
+                    Vector<int, 3> iVec = {i, j, k};
+                    Vector<double, 3> kVec;
+                    double Sk = 1.0;
+                    for(size_t d = 0; d < Dim; ++d) {
+                        kVec[d] = 2 * pi / Len[d] * (iVec[d] - (N[d] / 2));
+                        double khbytwo = kVec[d] * dx[d] / 2;
+                        bool isNotZero = (khbytwo != 0.0);
+                        double factor = (1.0 / (khbytwo + ((!isNotZero) * 1.0)));
+                        double arg = isNotZero * (Kokkos::sin(khbytwo) * factor) + 
+                                     (!isNotZero) * 1.0;
+                        //Fourier transform of CIC
+                        Sk *= std::pow(arg, order);
+                    }
+                        Skview(i+nghost, j+nghost, k+nghost) = Sk;
+                });
+            }
+            else {
+                throw IpplException("initializeShapeFunctionPIF",
+                                    "Unrecognized shape function type");
+            }
        }
 
    }
@@ -379,22 +391,22 @@ public:
    void LeapFrogPIF(BraidVector<PLayout_t>& u, const double& dt, const unsigned int& nt, const int& level) {
     
         //BraidVector *u = (BraidVector*) u_;
-        PLayout_t& PL = u.getLayout();
+        //PLayout_t& PL = u.getLayout();
         u.setParticleBC(ippl::BC::PERIODIC);
         auto &Rtemp = u.R;
         auto &Ptemp = u.P;
         auto &q = u.q;
         auto &E = u.E;
         //if(level > 0) {
-        rhoPIF_m = {0.0, 0.0};
+        rhoPIF_m[level] = {0.0, 0.0};
         q = Q_m / Np_m;
-        PL_m.applyBC(Rtemp, PL_m.getRegionLayout().getDomain());
-        scatterPIFNUFFT(q, rhoPIF_m, Sk_m, Rtemp, nufftType1_m[level].get(), spaceComm);
+        PL_m[level].applyBC(Rtemp, PL_m[level].getRegionLayout().getDomain());
+        scatterPIFNUFFT(q, rhoPIF_m[level], Sk_m[level], Rtemp, nufftType1_m[level].get(), spaceComm);
 
-        rhoPIF_m = rhoPIF_m / ((rmax_m[0] - rmin_m[0]) * (rmax_m[1] - rmin_m[1]) * (rmax_m[2] - rmin_m[2]));
+        rhoPIF_m[level] = rhoPIF_m[level] / ((rmax_m[0] - rmin_m[0]) * (rmax_m[1] - rmin_m[1]) * (rmax_m[2] - rmin_m[2]));
     
         // Solve for and gather E field
-        gatherPIFNUFFT(E, rhoPIF_m, Sk_m, Rtemp, nufftType2_m[level].get(), q);
+        gatherPIFNUFFT(E, rhoPIF_m[level], Sk_m[level], Rtemp, nufftType2_m[level].get(), q);
         //}
 
         //Reset the value of q here as we used it as a temporary object in gather to 
@@ -409,17 +421,17 @@ public:
             Rtemp = Rtemp + dt * Ptemp;
     
             //Apply particle BC
-            PL_m.applyBC(Rtemp, PL_m.getRegionLayout().getDomain());
+            PL_m[level].applyBC(Rtemp, PL_m[level].getRegionLayout().getDomain());
             //scatter the charge onto the underlying grid
-            rhoPIF_m = {0.0, 0.0};
+            rhoPIF_m[level] = {0.0, 0.0};
             
-            scatterPIFNUFFT(q, rhoPIF_m, Sk_m, Rtemp, nufftType1_m[level].get(), spaceComm);
+            scatterPIFNUFFT(q, rhoPIF_m[level], Sk_m[level], Rtemp, nufftType1_m[level].get(), spaceComm);
     
     
-            rhoPIF_m = rhoPIF_m / ((rmax_m[0] - rmin_m[0]) * (rmax_m[1] - rmin_m[1]) * (rmax_m[2] - rmin_m[2]));
+            rhoPIF_m[level] = rhoPIF_m[level] / ((rmax_m[0] - rmin_m[0]) * (rmax_m[1] - rmin_m[1]) * (rmax_m[2] - rmin_m[2]));
     
             // Solve for and gather E field
-            gatherPIFNUFFT(E, rhoPIF_m, Sk_m, Rtemp, nufftType2_m[level].get(), q);
+            gatherPIFNUFFT(E, rhoPIF_m[level], Sk_m[level], Rtemp, nufftType2_m[level].get(), q);
 
             q = Q_m / Np_m;
 
@@ -440,7 +452,7 @@ public:
         auto &E = u.E;
         rhoPIC_m = 0.0;
         q = Q_m / Np_m;
-        PL_m.applyBC(Rtemp, PL_m.getRegionLayout().getDomain());
+        PL.applyBC(Rtemp, PL.getRegionLayout().getDomain());
         scatter(q, rhoPIC_m, Rtemp, spaceComm);
     
         rhoPIC_m = rhoPIC_m / (hrPIC_m[0] * hrPIC_m[1] * hrPIC_m[2]);
@@ -460,7 +472,7 @@ public:
             Rtemp = Rtemp + dt * Ptemp;
     
             //Apply particle BC
-            PL_m.applyBC(Rtemp, PL_m.getRegionLayout().getDomain());
+            PL.applyBC(Rtemp, PL.getRegionLayout().getDomain());
     
             //scatter the charge onto the underlying grid
             rhoPIC_m = 0.0;
@@ -574,7 +586,7 @@ public:
 MyBraidApp::MyBraidApp(MPI_Comm comm_t_, MPI_Comm &comm_s_, int rank_, int rankSpace_, 
                        int rankTime_, int sizeSpace_, int sizeTime_, int num_procs_, 
                        double tstart_, double tstop_, int ntime_, 
-                       Vector_i nmPIF, Vector_i nrPIC, Vector_t rmin, Vector_t rmax, 
+                       Vector_i nrPIC, Vector_t rmin, Vector_t rmax, 
                        size_type Np, Vector_t alpha, Vector_t kw, double dtFine, 
                        double dtCoarse, double dtSlice, std::string& coarsetype, std::string& shapetype,
                        int shapedegree, double coarseTol, double fineTol, double cfactortime, double cfactorspace) : BraidApp(comm_t_, tstart_, tstop_, ntime_)
@@ -590,11 +602,11 @@ MyBraidApp::MyBraidApp(MPI_Comm comm_t_, MPI_Comm &comm_s_, int rank_, int rankS
    rmax_m = rmax;
    length_m = rmax_m - rmin_m;
    Q_m = -length_m[0] * length_m[1] * length_m[2];
-   nmPIF_m = nmPIF;
+   //nmPIF_m = nmPIF;
    nrPIC_m = nrPIC;
    for (unsigned d = 0; d < 3; d++) {
         hrPIC_m[d] = length_m[d] / nrPIC_m[d];
-        hrPIF_m[d] = length_m[d] / nmPIF_m[d];
+        //hrPIF_m[d] = length_m[d] / nmPIF_m[d];
    }
    Np_m = Np;
    alpha_m = alpha;
@@ -632,15 +644,16 @@ int MyBraidApp::Step(braid_Vector    u_,
    //unsigned int ntFine = 1;//std::ceil((tstop - tstart) / dtFine_m);
    //unsigned int ntCoarse = std::ceil((tstop - tstart) / dtCoarse_m);
    //unsigned int ntCoarse = std::ceil(dtSlice_m / dtCoarse_m);
-   unsigned int ntCoarse;// = std::ceil(dtSlice_m / dtCoarse_m);
-   unsigned int ntFine = std::ceil(dtSlice_m / dtFine_m);
+   //unsigned int ntCoarse;// = std::ceil(dtSlice_m / dtCoarse_m);
+   //unsigned int ntFine = std::ceil(dtSlice_m / dtFine_m);
 
-   //unsigned int ntFine = 1;
-   //unsigned int ntCoarse = 1;
+   unsigned int ntFine = 1;
+   unsigned int ntCoarse = 1;
+   //unsigned int ntCoarse;
 
-   //double dt = tstop - tstart;
-   //dtFine_m = dt;
-   //double dtCoarselevel = dt;
+   double dt = tstop - tstart;
+   dtFine_m = dt;
+   double dtCoarselevel = dt;
 
    int level;
    int max_levels;
@@ -654,8 +667,8 @@ int MyBraidApp::Step(braid_Vector    u_,
         IpplTimings::stopTimer(finePropagator);
    }
    else {
-        double dtCoarselevel = dtCoarse_m * std::pow(cfactortime_m, level);
-        ntCoarse = std::ceil(dtSlice_m / dtCoarselevel);
+        //double dtCoarselevel = dtCoarse_m * std::pow(cfactortime_m, level);
+        //ntCoarse = 2;//std::ceil((tstop - tstart) / dtCoarselevel);
         if(coarsetype_m == "PIF") {
             if(level == 0) {
                 IpplTimings::startTimer(finePropagator);
@@ -697,7 +710,7 @@ int MyBraidApp::Step(braid_Vector    u_,
 int MyBraidApp::Init(double        t,
                        braid_Vector *u_ptr)
 {
-   BraidVector<PLayout_t> *u = new BraidVector<PLayout_t>(PL_m);
+   BraidVector<PLayout_t> *u = new BraidVector<PLayout_t>(PL_m[0]);
    static IpplTimings::TimerRef particleCreation = IpplTimings::getTimer("particlesCreation");
    IpplTimings::startTimer(particleCreation);
    u->create(nloc_m);
@@ -747,7 +760,7 @@ int MyBraidApp::Clone(braid_Vector  u_,
    static IpplTimings::TimerRef Clone = IpplTimings::getTimer("Clone");
    IpplTimings::startTimer(Clone);
    BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
-   BraidVector<PLayout_t> *v = new BraidVector<PLayout_t>(PL_m); 
+   BraidVector<PLayout_t> *v = new BraidVector<PLayout_t>(PL_m[0]); 
    v->create(nloc_m);
    Kokkos::deep_copy(v->R.getView(), u->R.getView());
    Kokkos::deep_copy(v->P.getView(), u->P.getView());
@@ -817,7 +830,7 @@ int MyBraidApp::BufSize(int                *size_ptr,
    
    static IpplTimings::TimerRef BufSize = IpplTimings::getTimer("BufSize");
    IpplTimings::startTimer(BufSize);
-   //BraidVector<PLayout_t> utemp(PL_m);
+   BraidVector<PLayout_t> utemp{PL_m[0]};
    bufSize_m = utemp.packedSize(nloc_m); 
    *size_ptr = (int)bufSize_m;
    IpplTimings::stopTimer(BufSize);
@@ -850,7 +863,7 @@ int MyBraidApp::BufUnpack(void              *buffer,
    static IpplTimings::TimerRef BufUnpack = IpplTimings::getTimer("BufUnpack");
    IpplTimings::startTimer(BufUnpack);
    using buffer_type = ippl::Communicate::buffer_type;
-   BraidVector<PLayout_t> *u = new BraidVector<PLayout_t>(PL_m);
+   BraidVector<PLayout_t> *u = new BraidVector<PLayout_t>(PL_m[0]);
    u->create(nloc_m);
    u->setParticleBC(ippl::BC::PERIODIC);
 
@@ -1162,9 +1175,9 @@ int main (int argc, char *argv[])
    Vector_t rmax = 2 * pi / kw ;
 
    int num_procs_x = std::atoi(argv[15]);
-   int timeProcs = std::atoi(argv[16]);
+   //int timeProcs = std::atoi(argv[16]);
 
-    ippl::Vector<int,Dim> nmPIF = {
+    ippl::Vector<int,Dim> nmPIFlevel0 = {
         std::atoi(argv[1]),
         std::atoi(argv[2]),
         std::atoi(argv[3])
@@ -1193,7 +1206,7 @@ int main (int argc, char *argv[])
    //unsigned int ntCoarse = std::ceil(dtSlice / dtCoarse);
    double tol = std::atof(argv[11]);
    //ntime = (int)(tEnd / dtFine);
-   //ntime = std::ceil(tEnd / dtFine);
+   ntime = std::ceil(tEnd / dtFine);
    //if ((ntime & (timeProcs - 1)) != 0) { // not divisible
    //     ntime = (ntime + timeProcs - 1) & ~(timeProcs - 1);
    //     //std::cout << n << " is not divisible by " << p
@@ -1219,24 +1232,41 @@ int main (int argc, char *argv[])
    MPI_Comm_size(spaceComm, &sizeSpace);
    MPI_Comm_size(timeComm, &sizeTime);
 
-   ntime = sizeTime;//std::ceil(tEnd / sizeTime);
+   //ntime = sizeTime;//std::ceil(tEnd / sizeTime);
    double dtSlice = tEndCycle / sizeTime;
    //int CFactor = (int)(dtSlice/dtFine) + 1;
    //int CFactor = std::ceil(dtSlice/dtFine);
    // set up app structure
    MyBraidApp app(timeComm, spaceComm, rank, rankSpace, rankTime, 
                   sizeSpace, sizeTime, num_procs, tstart, tstop, 
-                  ntime, nmPIF, nrPIC, rmin, rmax, totalP, alpha, kw,
+                  ntime, nrPIC, rmin, rmax, totalP, alpha, kw,
                   dtFine, dtCoarse, dtSlice, coarsetype, shapetype, shapedegree,
                   coarseTol, fineTol, cfactortime, cfactorspace);
 
    //std::cout << "Rank: " << Ippl::Comm->rank() << "after braid app" << std::endl;
 
    ippl::NDIndex<Dim> domainPIC;
-   ippl::NDIndex<Dim> domainPIF;
+   //ippl::NDIndex<Dim> domainPIF;
+   
+   std::vector<ippl::NDIndex<Dim>> domainPIF;
+   std::vector<Vector_i> nmPIF;
+   std::vector<Vector_t> hrPIF;
+   std::vector<Mesh_t> meshPIF;
+   std::vector<FieldLayout_t> FLPIF;
+   std::vector<PLayout_t> PL;
+   domainPIF.resize(nLevels);
+   nmPIF.resize(nLevels);
+   hrPIF.resize(nLevels);
+   meshPIF.resize(nLevels);
+   FLPIF.resize(nLevels);
+   PL.resize(nLevels);
+   app.rhoPIF_m.resize(nLevels);
+   app.Sk_m.resize(nLevels);
+   app.nmPIF_m.resize(nLevels);
+   
    for (unsigned i = 0; i< Dim; i++) {
        domainPIC[i] = ippl::Index(nrPIC[i]);
-       domainPIF[i] = ippl::Index(nmPIF[i]);
+       //domainPIF[i] = ippl::Index(nmPIF[i]);
    }
 
    ippl::e_dim_tag decomp[Dim];
@@ -1247,16 +1277,36 @@ int main (int argc, char *argv[])
    Vector_t origin = {rmin[0], rmin[1], rmin[2]};
 
    const bool isAllPeriodic=true;
+  
+
+   Vector_t length = rmax - rmin;
+   for (int level = 0; level < nLevels; ++level) {
+   
+       for (unsigned i = 0; i< Dim; i++) {
+           nmPIF[level][i] = (int)(nmPIFlevel0[i] / std::pow(1, level));
+           domainPIF[level][i] = ippl::Index(nmPIF[level][i]);
+           hrPIF[level][i] = length[i] / nmPIF[level][i];
+       }
+       meshPIF[level].initialize(domainPIF[level], hrPIF[level], origin);
+       FLPIF[level].initialize(domainPIF[level], decomp, isAllPeriodic);
+       PL[level].updateLayout(FLPIF[level], meshPIF[level]);
+       app.rhoPIF_m[level].initialize(meshPIF[level], FLPIF[level]);
+       app.Sk_m[level].initialize(meshPIF[level], FLPIF[level]);
+   }
+    
+
    Mesh_t meshPIC(domainPIC, app.hrPIC_m, origin);
-   Mesh_t meshPIF(domainPIF, app.hrPIF_m, origin);
+   //Mesh_t meshPIF(domainPIF, app.hrPIF_m, origin);
    FieldLayout_t FLPIC(domainPIC, decomp, isAllPeriodic);
-   FieldLayout_t FLPIF(domainPIF, decomp, isAllPeriodic);
-   PLayout_t PL(FLPIC, meshPIC);
+   //FieldLayout_t FLPIF(domainPIF, decomp, isAllPeriodic);
+   //PLayout_t PL(FLPIC, meshPIC);
 
    app.PL_m = PL;
+   app.nmPIF_m = nmPIF;
+   app.hrPIF_m = hrPIF;
    //PL_m.updateLayout(FLPIC, meshPIC);
-   app.rhoPIF_m.initialize(meshPIF, FLPIF);
-   app.Sk_m.initialize(meshPIF, FLPIF);
+   //app.rhoPIF_m.initialize(meshPIF, FLPIF);
+   //app.Sk_m.initialize(meshPIF, FLPIF);
 
    if(coarsetype == "PIC") {
         app.rhoPIC_m.initialize(meshPIC, FLPIC);
@@ -1268,7 +1318,7 @@ int main (int argc, char *argv[])
    }
 
    app.initNUFFTs(FLPIF, nLevels);
-   app.initializeShapeFunctionPIF();
+   app.initializeShapeFunctionPIF(nLevels);
 
 
    //app.initRequiredFields(coarseTol, fineTol);
@@ -1285,7 +1335,7 @@ int main (int argc, char *argv[])
 
    // Initialize Braid Core Object and set some solver options
    BraidCore core(comm, &app);
-   core.SetPrintLevel(3);
+   core.SetPrintLevel(2);
    core.SetAccessLevel(0);
    core.SetMaxLevels(nLevels);
    core.SetMaxIter(10);
@@ -1293,9 +1343,8 @@ int main (int argc, char *argv[])
    core.SetAbsTol(tol);
    int tnorm = 3; //Infinity norm
    core.SetTemporalNorm(tnorm);
-   //core.SetCFactor(-1, 2);
-   //core.SetCFactor(0, 8);
-   core.SetCFactor(-1, 1);
+   core.SetCFactor(-1, 2);
+   //core.SetCFactor(0, 32);
    
    //core.SetCFactor(0, 4);
    core.SetNRelax(-1, nrelax);
