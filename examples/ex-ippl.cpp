@@ -1213,16 +1213,16 @@ int main (int argc, char *argv[])
    //     //     << ", rounding up to " << next << endl;
    //}
 
-   std::string coarsetype = argv[19];
-   int nLevels = std::atoi(argv[20]);
-   int nrelax = std::atoi(argv[21]);
-   int nrelax0 = std::atoi(argv[22]);
-   double cfactortime = std::atof(argv[23]);
-   double cfactorspace = std::atof(argv[24]);
+   std::string coarsetype = argv[18];
+   int nLevels = std::atoi(argv[19]);
+   int nrelax = std::atoi(argv[20]);
+   int nrelax0 = std::atoi(argv[21]);
+   double cfactortime = std::atof(argv[22]);
+   double cfactorspace = std::atof(argv[23]);
    std::string shapetype = argv[13];
    int shapedegree = std::atoi(argv[14]);
-   double coarseTol = std::atof(argv[17]);  
-   double fineTol   = std::atof(argv[18]);
+   double coarseTol = std::atof(argv[16]);  
+   double fineTol   = std::atof(argv[17]);
    
 
    util.SplitCommworld(&comm, num_procs_x, &spaceComm, &timeComm);
@@ -1247,6 +1247,7 @@ int main (int argc, char *argv[])
 
    ippl::NDIndex<Dim> domainPIC;
    //ippl::NDIndex<Dim> domainPIF;
+   
    
    std::vector<ippl::NDIndex<Dim>> domainPIF;
    std::vector<Vector_i> nmPIF;
@@ -1343,17 +1344,16 @@ int main (int argc, char *argv[])
    core.SetAbsTol(tol);
    int tnorm = 3; //Infinity norm
    core.SetTemporalNorm(tnorm);
-   core.SetCFactor(-1, 2);
-   //core.SetCFactor(0, 32);
+   core.SetCFactor(-1, (int)cfactortime);
    
-   //core.SetCFactor(0, 4);
    core.SetNRelax(-1, nrelax);
    core.SetNRelax(0, nrelax0);
    
    //std::cout << "Rank: " << Ippl::Comm->rank() << "Levels: "  <<  nLevels << std::endl;
    // Run Simulation
    core.SetBufAllocFree();
-   //core.SetFMG();
+   core.SetFMG();
+   //core.SetNFMG(1);
    //core.SetCRelaxWt(-1, 1.3);
    //core.SetSeqSoln(1);
    core.Drive();
