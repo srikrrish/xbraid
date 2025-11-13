@@ -278,15 +278,22 @@ public:
             //Example: vary tolerance by level
             double coarseTol = coarseTol_m * std::pow(cfactorspace_m, level);
             double tol = (level == 0) ? fineTol_m : coarseTol;
+            plist.add("tolerance", tol);
+#ifdef GPU_BUILD
             plist.add("gpu_method", 2);
             plist.add("gpu_sort", 0);
             plist.add("gpu_kerevalmeth", 1);
-            plist.add("tolerance", tol);
             plist.add("gpu_binsizex", 8);
             plist.add("gpu_binsizey", 8);
             plist.add("gpu_binsizez", 2);
             plist.add("gpu_maxsubprobsize", 1024);
-            plist.add("use_cufinufft_defaults", false);
+#else
+            
+            plist.add("spread_kerevalmeth", 1);
+            plist.add("spread_sort", 2);
+            plist.add("nthreads", 0);
+#endif
+            plist.add("use_finufft_defaults", false);
 
             nufftType1_m[level] = std::make_shared<ippl::FFT<ippl::NUFFTransform, 3, double>>(FLPIF, nloc_m, 1, plist);
             nufftType2_m[level] = std::make_shared<ippl::FFT<ippl::NUFFTransform, 3, double>>(FLPIF, nloc_m, 2, plist);
@@ -347,7 +354,7 @@ public:
    void BorisPIF(BraidVector<PLayout_t>& u, const double& dt, const unsigned int& nt, const int& level) {
     
         //BraidVector *u = (BraidVector*) u_;
-        PLayout_t& PL = u.getLayout();
+        //PLayout_t& PL = u.getLayout();
         u.setParticleBC(ippl::BC::PERIODIC);
         auto &Rtemp = u.R;
         auto &Ptemp = u.P;
@@ -448,7 +455,7 @@ public:
     void BorisPIC(BraidVector<PLayout_t>& u, const double& dt, const unsigned int& nt) {
     
         //BraidVector *u = (BraidVector*) u_;
-        PLayout_t& PL = u.getLayout();
+        //PLayout_t& PL = u.getLayout();
         u.setParticleBC(ippl::BC::PERIODIC);
         auto &Rtemp = u.R;
         auto &Ptemp = u.P;
@@ -699,15 +706,15 @@ int MyBraidApp::Step(braid_Vector    u_,
    //unsigned int ntFine = 1;//std::ceil((tstop - tstart) / dtFine_m);
    //unsigned int ntCoarse = std::ceil((tstop - tstart) / dtCoarse_m);
    //unsigned int ntCoarse = std::ceil(dtSlice_m / dtCoarse_m);
-   //unsigned int ntCoarse;// = std::ceil(dtSlice_m / dtCoarse_m);
-   //unsigned int ntFine = std::ceil(dtSlice_m / dtFine_m);
+   unsigned int ntCoarse;// = std::ceil(dtSlice_m / dtCoarse_m);
+   unsigned int ntFine = std::ceil(dtSlice_m / dtFine_m);
 
-   unsigned int ntFine = 1;
-   unsigned int ntCoarse = 1;
+   //unsigned int ntFine = 1;
+   //unsigned int ntCoarse = 1;
 
-   double dt = tstop - tstart;
-   dtFine_m = dt;
-   double dtCoarselevel = dt;
+   //double dt = tstop - tstart;
+   //dtFine_m = dt;
+   //double dtCoarselevel = dt;
 
    int level;
    int max_levels;
@@ -721,8 +728,8 @@ int MyBraidApp::Step(braid_Vector    u_,
         IpplTimings::stopTimer(finePropagator);
    }
    else {
-        //double dtCoarselevel = dtCoarse_m * std::pow(cfactortime_m, level);
-        //ntCoarse = std::ceil(dtSlice_m / dtCoarselevel);
+        double dtCoarselevel = dtCoarse_m * std::pow(cfactortime_m, level);
+        ntCoarse = std::ceil(dtSlice_m / dtCoarselevel);
         if(coarsetype_m == "PIF") {
             if(level == 0) {
                 IpplTimings::startTimer(finePropagator);
@@ -1190,7 +1197,7 @@ int main (int argc, char *argv[])
    Vector_t rmax(25.0);
 
    int num_procs_x = std::atoi(argv[15]);
-   int timeProcs = std::atoi(argv[16]);
+   //int timeProcs = std::atoi(argv[16]);
 
     ippl::Vector<int,Dim> nmPIF = {
         std::atoi(argv[1]),
@@ -1220,23 +1227,23 @@ int main (int argc, char *argv[])
    //unsigned int ntFine = std::ceil(dtSlice / dtFine);
    //unsigned int ntCoarse = std::ceil(dtSlice / dtCoarse);
    double tol = std::atof(argv[11]);
-   ntime = std::ceil(tEnd / dtFine);
+   //ntime = std::ceil(tEnd / dtFine);
    //if ((ntime & (timeProcs - 1)) != 0) { // not divisible
    //     ntime = (ntime + timeProcs - 1) & ~(timeProcs - 1);
    //     //std::cout << n << " is not divisible by " << p
    //     //     << ", rounding up to " << next << endl;
    //}
 
-   std::string coarsetype = argv[19];
-   int nLevels = std::atoi(argv[20]);
-   int nrelax = std::atoi(argv[21]);
-   int nrelax0 = std::atoi(argv[22]);
-   double cfactortime = std::atof(argv[23]);
-   double cfactorspace = std::atof(argv[24]);
+   std::string coarsetype = argv[18];
+   int nLevels = std::atoi(argv[19]);
+   int nrelax = std::atoi(argv[20]);
+   int nrelax0 = std::atoi(argv[21]);
+   double cfactortime = std::atof(argv[22]);
+   double cfactorspace = std::atof(argv[23]);
    std::string shapetype = argv[13];
    int shapedegree = std::atoi(argv[14]);
-   double coarseTol = std::atof(argv[17]);  
-   double fineTol   = std::atof(argv[18]);
+   double coarseTol = std::atof(argv[16]);  
+   double fineTol   = std::atof(argv[17]);
    
 
    util.SplitCommworld(&comm, num_procs_x, &spaceComm, &timeComm);
@@ -1246,7 +1253,7 @@ int main (int argc, char *argv[])
    MPI_Comm_size(spaceComm, &sizeSpace);
    MPI_Comm_size(timeComm, &sizeTime);
 
-   //ntime = sizeTime;
+   ntime = sizeTime;
    double dtSlice = tEndCycle / sizeTime;
    //int CFactor = (int)(dtSlice/dtFine) + 1;
    //int CFactor = std::ceil(dtSlice/dtFine);
@@ -1320,9 +1327,9 @@ int main (int argc, char *argv[])
    core.SetAbsTol(tol);
    int tnorm = 3; //Infinity norm
    core.SetTemporalNorm(tnorm);
-   core.SetCFactor(-1, 2);
+   //core.SetCFactor(-1, (int)cfactortime);
    //core.SetCFactor(0, 8);
-   //core.SetCFactor(-1, 1);
+   core.SetCFactor(-1, 1);
    
    //core.SetCFactor(0, 4);
    core.SetNRelax(-1, nrelax);

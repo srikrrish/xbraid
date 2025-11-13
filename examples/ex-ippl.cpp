@@ -644,16 +644,15 @@ int MyBraidApp::Step(braid_Vector    u_,
    //unsigned int ntFine = 1;//std::ceil((tstop - tstart) / dtFine_m);
    //unsigned int ntCoarse = std::ceil((tstop - tstart) / dtCoarse_m);
    //unsigned int ntCoarse = std::ceil(dtSlice_m / dtCoarse_m);
-   //unsigned int ntCoarse;// = std::ceil(dtSlice_m / dtCoarse_m);
-   //unsigned int ntFine = std::ceil(dtSlice_m / dtFine_m);
+   unsigned int ntCoarse;// = std::ceil(dtSlice_m / dtCoarse_m);
+   unsigned int ntFine = std::ceil(dtSlice_m / dtFine_m);
 
-   unsigned int ntFine = 1;
-   unsigned int ntCoarse = 1;
-   //unsigned int ntCoarse;
+   //unsigned int ntFine = 1;
+   //unsigned int ntCoarse = 1;
 
-   double dt = tstop - tstart;
-   dtFine_m = dt;
-   double dtCoarselevel = dt;
+   //double dt = tstop - tstart;
+   //dtFine_m = dt;
+   //double dtCoarselevel = dt;
 
    int level;
    int max_levels;
@@ -667,8 +666,8 @@ int MyBraidApp::Step(braid_Vector    u_,
         IpplTimings::stopTimer(finePropagator);
    }
    else {
-        //double dtCoarselevel = dtCoarse_m * std::pow(cfactortime_m, level);
-        //ntCoarse = 2;//std::ceil((tstop - tstart) / dtCoarselevel);
+        double dtCoarselevel = dtCoarse_m * std::pow(cfactortime_m, level);
+        ntCoarse = std::ceil(dtSlice_m / dtCoarselevel);
         if(coarsetype_m == "PIF") {
             if(level == 0) {
                 IpplTimings::startTimer(finePropagator);
@@ -1206,7 +1205,7 @@ int main (int argc, char *argv[])
    //unsigned int ntCoarse = std::ceil(dtSlice / dtCoarse);
    double tol = std::atof(argv[11]);
    //ntime = (int)(tEnd / dtFine);
-   ntime = std::ceil(tEnd / dtFine);
+   //ntime = std::ceil(tEnd / dtFine);
    //if ((ntime & (timeProcs - 1)) != 0) { // not divisible
    //     ntime = (ntime + timeProcs - 1) & ~(timeProcs - 1);
    //     //std::cout << n << " is not divisible by " << p
@@ -1232,7 +1231,7 @@ int main (int argc, char *argv[])
    MPI_Comm_size(spaceComm, &sizeSpace);
    MPI_Comm_size(timeComm, &sizeTime);
 
-   //ntime = sizeTime;//std::ceil(tEnd / sizeTime);
+   ntime = sizeTime;//std::ceil(tEnd / sizeTime);
    double dtSlice = tEndCycle / sizeTime;
    //int CFactor = (int)(dtSlice/dtFine) + 1;
    //int CFactor = std::ceil(dtSlice/dtFine);
@@ -1344,7 +1343,8 @@ int main (int argc, char *argv[])
    core.SetAbsTol(tol);
    int tnorm = 3; //Infinity norm
    core.SetTemporalNorm(tnorm);
-   core.SetCFactor(-1, (int)cfactortime);
+   //core.SetCFactor(-1, (int)cfactortime);
+   core.SetCFactor(-1, 1);
    
    core.SetNRelax(-1, nrelax);
    core.SetNRelax(0, nrelax0);

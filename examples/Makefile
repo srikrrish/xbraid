@@ -57,7 +57,7 @@ ifeq ($(BUILD),gpu)
 	HEFFTE_INC_DIR = -I$(HEFFTE_DIR)/include
 	HEFFTE_LIB = -L$(HEFFTE_DIR)/lib64 -lheffte
 	
-	FINUFFT_DIR = ../../finufft_2.3.1
+	FINUFFT_DIR = ../../finufft_2.4.1
 	FINUFFT_INC_DIR = -I$(FINUFFT_DIR)/include
 	FINUFFT_LIB = -L$(FINUFFT_DIR)/lib -lcufinufft
 	
@@ -67,10 +67,10 @@ ifeq ($(BUILD),gpu)
 	#export NVCC_WRAPPER_DEFAULT_COMPILER=/p/software/juwelsbooster/stages/2025/software/GCCcore/13.3.0/bin/gcc
 	export NVCC_WRAPPER_DEFAULT_COMPILER=/p/software/default/stages/2025/software/OpenMPI/5.0.5-GCC-13.3.0/bin/mpicxx
 	
-	IPPL_DIR = ../../ippl_install_buffer
+	IPPL_DIR = ../../ippl_gpu_install
 	IPPL_CXX = ${KOKKOS_DIR}/bin/nvcc_wrapper
 	#IPPL_CXX = $(MPICXX)
-	IPPL_CXXFLAGS = -O3 -std=c++20 --expt-extended-lambda -arch=sm_80 -Wno-deprecated-declarations -DGPU_BUILD
+	IPPL_CXXFLAGS = -O3 -std=c++20 --expt-extended-lambda -arch=sm_80 -Wno-deprecated-declarations -DGPU_BUILD -DENABLE_GPU_NUFFT
 	#IPPL_CXXFLAGS = -O3 -std=c++20
 	IPPL_EXT_LIBS = $(KOKKOS_LIB) $(HEFFTE_LIB) $(FINUFFT_LIB) $(CUDA_LIB)
 else ifeq ($(BUILD),cpu)
@@ -91,7 +91,7 @@ else ifeq ($(BUILD),cpu)
 	#IPPL_CXX = ${KOKKOS_DIR}/bin/nvcc_wrapper
 	IPPL_CXX = $(MPICXX)
 	#IPPL_CXXFLAGS = -O3 -std=c++20 --expt-extended-lambda -arch=sm_80 -Wno-deprecated-declarations
-	IPPL_CXXFLAGS = -O3 -std=c++20 -fopenmp -Wno-deprecated-declarations -DCPU_BUILD
+	IPPL_CXXFLAGS = -O3 -std=c++20 -fopenmp -Wno-deprecated-declarations -DCPU_BUILD -DENABLE_CPU_NUFFT
 	IPPL_EXT_LIBS = $(KOKKOS_LIB) $(HEFFTE_LIB) $(FINUFFT_LIB) -fopenmp
 endif
 
