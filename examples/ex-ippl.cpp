@@ -1247,7 +1247,8 @@ int main (int argc, char *argv[])
    ippl::NDIndex<Dim> domainPIC;
    //ippl::NDIndex<Dim> domainPIF;
    
-   
+   // This is for mode based coarsening which was not very effective in Parareal.
+   // Here this was not tested much.
    std::vector<ippl::NDIndex<Dim>> domainPIF;
    std::vector<Vector_i> nmPIF;
    std::vector<Vector_t> hrPIF;
@@ -1280,6 +1281,10 @@ int main (int argc, char *argv[])
   
 
    Vector_t length = rmax - rmin;
+   // This is for mode based coarsening which was not very effective in Parareal.
+   // Here this was not tested much. When we put in instead of 1 in std::pow, for 
+   // example 2, then at each level the number of Fourier modes in each direction 
+   // reduces by half. 
    for (int level = 0; level < nLevels; ++level) {
    
        for (unsigned i = 0; i< Dim; i++) {

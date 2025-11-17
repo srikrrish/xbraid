@@ -1322,7 +1322,7 @@ int main (int argc, char *argv[])
    core.SetPrintLevel(2);
    core.SetAccessLevel(0);
    core.SetMaxLevels(nLevels);
-   core.SetMaxIter(10);
+   core.SetMaxIter(20);
    //core.SetRelTol(tol);
    core.SetAbsTol(tol);
    int tnorm = 3; //Infinity norm
@@ -1338,7 +1338,7 @@ int main (int argc, char *argv[])
    //std::cout << "Rank: " << Ippl::Comm->rank() << "Levels: "  <<  nLevels << std::endl;
    // Run Simulation
    core.SetBufAllocFree();
-   //core.SetFMG();
+   core.SetFMG();
    //core.SetCRelaxWt(-1, 1.3);
    //core.SetSeqSoln(1);
    core.Drive();
