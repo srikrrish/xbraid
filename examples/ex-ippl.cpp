@@ -299,38 +299,46 @@ public:
    
    void initNUFFTs(std::vector<FieldLayout_t>& FLPIF, int numLevels) {
 
-        std::vector<ippl::ParameterList> fftParamsPerLevel;
+        std::vector<ippl::ParameterList> fftParams1PerLevel, fftParams2PerLevel;
        
-        fftParamsPerLevel.resize(numLevels);
+        fftParams1PerLevel.resize(numLevels);
+        fftParams2PerLevel.resize(numLevels);
         nufftType1_m.resize(numLevels);
         nufftType2_m.resize(numLevels);
         
 
         for (int level = 0; level < numLevels; ++level) {
-            auto& plist = fftParamsPerLevel[level];
+            auto& plist1 = fftParams1PerLevel[level];
+            auto& plist2 = fftParams2PerLevel[level];
         
             //Example: vary tolerance by level
             double coarseTol = coarseTol_m * std::pow(cfactorspace_m, level);
             double tol = (level == 0) ? fineTol_m : coarseTol;
-            plist.add("tolerance", tol);
+            plist1.add("tolerance", tol);
+            plist2.add("tolerance", tol);
 #ifdef GPU_BUILD
-            plist.add("gpu_method", 2);
-            plist.add("gpu_sort", 0);
-            plist.add("gpu_kerevalmeth", 1);
-            plist.add("gpu_binsizex", 8);
-            plist.add("gpu_binsizey", 8);
-            plist.add("gpu_binsizez", 2);
-            plist.add("gpu_maxsubprobsize", 1024);
+            plist1.add("gpu_method", 3);
+            plist1.add("gpu_sort", 0);
+            plist1.add("gpu_kerevalmeth", 1);
+            plist1.add("gpu_binsizex", 8);
+            plist1.add("gpu_binsizey", 8);
+            plist1.add("gpu_binsizez", 2);
+            plist1.add("gpu_maxsubprobsize", 1024);
 #else
             
-            plist.add("spread_kerevalmeth", 1);
-            plist.add("spread_sort", 2);
-            plist.add("nthreads", 0);
+            plist1.add("spread_kerevalmeth", 1);
+            plist1.add("spread_sort", 2);
+            plist1.add("nthreads", 0);
+            
+            plist2.add("spread_kerevalmeth", 1);
+            plist2.add("spread_sort", 2);
+            plist2.add("nthreads", 0);
 #endif
-            plist.add("use_finufft_defaults", false);
+            plist1.add("use_finufft_defaults", false);
+            plist2.add("use_finufft_defaults", false);
 
-            nufftType1_m[level] = std::make_shared<ippl::FFT<ippl::NUFFTransform, 3, double>>(FLPIF[level], nloc_m, 1, plist);
-            nufftType2_m[level] = std::make_shared<ippl::FFT<ippl::NUFFTransform, 3, double>>(FLPIF[level], nloc_m, 2, plist);
+            nufftType1_m[level] = std::make_shared<ippl::FFT<ippl::NUFFTransform, 3, double>>(FLPIF[level], nloc_m, 1, plist1);
+            nufftType2_m[level] = std::make_shared<ippl::FFT<ippl::NUFFTransform, 3, double>>(FLPIF[level], nloc_m, 2, plist2);
         }
    }
 
