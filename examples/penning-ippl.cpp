@@ -275,7 +275,8 @@ public:
         nufftType2_m.resize(numLevels);
 
         for (int level = 0; level < numLevels; ++level) {
-            auto& plist = fftParamsPerLevel[level];
+            auto& plist1 = fftParams1PerLevel[level];
+            auto& plist2 = fftParams2PerLevel[level];
         
             //Example: vary tolerance by level
             double coarseTol = coarseTol_m * std::pow(cfactorspace_m, level);

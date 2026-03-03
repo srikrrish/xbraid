@@ -204,7 +204,7 @@ private:
    int next_id_ = 1;
    std::map<void*, int> buffer_ptr_to_id_;  // raw ptr to id mapping
    std::map<int, ippl::Communicate::buffer_type> buffer_pool_;  // Pool: unique id → list of buffers
-
+   std::vector<BraidVector<PLayout_t>*> vector_pool_m;
 public:
 
    std::vector<CxField_t> rhoPIF_m;
@@ -276,7 +276,7 @@ public:
 
 
    // Deconstructor
-   virtual ~MyBraidApp() {};
+   virtual ~MyBraidApp();
 
    void initFFTSolver() {
        ippl::ParameterList sp;
@@ -633,6 +633,14 @@ MyBraidApp::MyBraidApp(MPI_Comm comm_t_, MPI_Comm &comm_s_, int rank_, int rankS
    cfactorspace_m = cfactorspace;
 }
 
+MyBraidApp::~MyBraidApp()
+{
+    for (auto v : vector_pool_m) {
+        delete v;
+    }
+    vector_pool_m.clear();
+}
+
 // 
 int MyBraidApp::Step(braid_Vector    u_,
                      braid_Vector    ustop_,
@@ -767,8 +775,21 @@ int MyBraidApp::Clone(braid_Vector  u_,
    static IpplTimings::TimerRef Clone = IpplTimings::getTimer("Clone");
    IpplTimings::startTimer(Clone);
    BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
-   BraidVector<PLayout_t> *v = new BraidVector<PLayout_t>(PL_m[0]); 
-   v->create(nloc_m);
+   //BraidVector<PLayout_t> *v = new BraidVector<PLayout_t>(PL_m[0]); 
+   //v->create(nloc_m);
+   BraidVector<PLayout_t> *v = nullptr;
+
+   // Reuse from pool if available
+   if (!vector_pool_m.empty()) {
+       v = vector_pool_m.back();
+       vector_pool_m.pop_back();
+   } else {
+       // Allocate only if pool empty
+       v = new BraidVector<PLayout_t>(PL_m[0]);
+       v->create(nloc_m);  // GPU allocation happens here only once
+   }
+
+    
    Kokkos::deep_copy(v->R.getView(), u->R.getView());
    Kokkos::deep_copy(v->P.getView(), u->P.getView());
    Kokkos::deep_copy(v->q.getView(), u->q.getView());
@@ -786,7 +807,9 @@ int MyBraidApp::Free(braid_Vector u_)
    static IpplTimings::TimerRef Free = IpplTimings::getTimer("Free");
    IpplTimings::startTimer(Free);
    BraidVector<PLayout_t> *u = (BraidVector<PLayout_t>*) u_;
-   delete u;
+   //delete u;
+   // Return to pool instead of deleting
+   vector_pool_m.push_back(u);
    IpplTimings::stopTimer(Free);
    return 0;
 }
@@ -870,8 +893,19 @@ int MyBraidApp::BufUnpack(void              *buffer,
    static IpplTimings::TimerRef BufUnpack = IpplTimings::getTimer("BufUnpack");
    IpplTimings::startTimer(BufUnpack);
    using buffer_type = ippl::Communicate::buffer_type;
-   BraidVector<PLayout_t> *u = new BraidVector<PLayout_t>(PL_m[0]);
-   u->create(nloc_m);
+   //BraidVector<PLayout_t> *u = new BraidVector<PLayout_t>(PL_m[0]);
+   //u->create(nloc_m);
+   BraidVector<PLayout_t> *u = nullptr;
+
+   // Reuse from pool if available
+   if (!vector_pool_m.empty()) {
+        u = vector_pool_m.back();
+        vector_pool_m.pop_back();
+   } else {
+    // Allocate only if necessary
+        u = new BraidVector<PLayout_t>(PL_m[0]);
+        u->create(nloc_m);
+   }
    u->setParticleBC(ippl::BC::PERIODIC);
 
    void* raw_ptr = buffer;
