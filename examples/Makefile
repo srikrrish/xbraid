@@ -64,14 +64,14 @@ ifeq ($(BUILD),gpu)
 	CUDA_LIB = -L$(CUDA_HOME)/lib64 -lcuda -lcudart -lcufft
 	
 	#export NVCC_WRAPPER_DEFAULT_COMPILER="$(which mpicxx)"
-	export NVCC_WRAPPER_DEFAULT_COMPILER=/p/software/default/stages/2025/software/OpenMPI/5.0.5-GCC-13.3.0/bin/mpicxx
-	#export NVCC_WRAPPER_DEFAULT_COMPILER=/user-environment/env/develop/bin/mpicxx
+	#export NVCC_WRAPPER_DEFAULT_COMPILER=/p/software/default/stages/2025/software/OpenMPI/5.0.5-GCC-13.3.0/bin/mpicxx
+	export NVCC_WRAPPER_DEFAULT_COMPILER=/user-environment/env/develop/bin/mpicxx
 	
 	IPPL_DIR = ../../ippl_gpu_install
 	IPPL_CXX = ${KOKKOS_DIR}/bin/nvcc_wrapper
 	#IPPL_CXX = $(MPICXX)
-	IPPL_CXXFLAGS = -O3 -std=c++20 --expt-extended-lambda -arch=sm_80 -Wno-deprecated-declarations -DGPU_BUILD -DENABLE_GPU_NUFFT
-	#IPPL_CXXFLAGS = -O3 -std=c++20 --expt-extended-lambda -arch=sm_90 -Wno-deprecated-declarations -DGPU_BUILD -DENABLE_GPU_NUFFT
+	#IPPL_CXXFLAGS = -O3 -std=c++20 --expt-extended-lambda -arch=sm_80 -Wno-deprecated-declarations -DGPU_BUILD -DENABLE_GPU_NUFFT
+	IPPL_CXXFLAGS = -O3 -std=c++20 --expt-extended-lambda -arch=sm_90 -Wno-deprecated-declarations -DGPU_BUILD -DENABLE_GPU_NUFFT
 	#IPPL_CXXFLAGS = -O3 -std=c++20
 	IPPL_EXT_LIBS = $(KOKKOS_LIB) $(HEFFTE_LIB) $(FINUFFT_LIB) $(CUDA_LIB)
 else ifeq ($(BUILD),cpu)
